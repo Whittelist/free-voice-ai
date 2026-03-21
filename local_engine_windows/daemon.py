@@ -13,6 +13,7 @@ import struct
 import tempfile
 import threading
 import time
+import traceback
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,6 +97,7 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
 class DownloadJob:
     profile: str
     status: str = "idle"
+    stage: str = "idle"
     progress: float = 0.0
     downloaded_bytes: int = 0
     total_bytes: int = 0
@@ -107,6 +109,7 @@ class DownloadJob:
         return {
             "profile": self.profile,
             "status": self.status,
+            "stage": self.stage,
             "progress": round(self.progress, 2),
             "downloaded_bytes": self.downloaded_bytes,
             "total_bytes": self.total_bytes,
@@ -214,8 +217,24 @@ class EngineRuntime:
 
         try:
             import numpy as np
+            import perth
             import torch
             from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+            # Some perth builds silently disable PerthImplicitWatermarker when an optional
+            # import (commonly pkg_resources) is missing. In that case chatterbox crashes
+            # at model init with "'NoneType' object is not callable". Fallback to dummy
+            # watermarker to keep local inference usable.
+            if getattr(perth, "PerthImplicitWatermarker", None) is None:
+                dummy_watermarker = getattr(perth, "DummyWatermarker", None)
+                if dummy_watermarker is not None:
+                    perth.PerthImplicitWatermarker = dummy_watermarker
+                    self.log(
+                        "WARN: PerthImplicitWatermarker no disponible; se usara DummyWatermarker "
+                        "(sin watermark implicito)."
+                    )
+                else:
+                    self.log("WARN: Perth watermarker no disponible; la carga del backend puede fallar.")
 
             self._torch = torch
             self._np = np
@@ -256,14 +275,37 @@ class EngineRuntime:
             if self._real_model is not None:
                 return
             try:
-                self.log("Inicializando Chatterbox Multilingual...")
+                self.log(
+                    "Inicializando Chatterbox Multilingual (primera vez puede tardar varios minutos "
+                    "por descarga/cache de checkpoints)..."
+                )
                 assert self._chatterbox_class is not None
-                self._real_model = self._chatterbox_class.from_pretrained(device=self.real_backend_device)
+                # Workaround for checkpoints serialized with CUDA storages on CPU-only hosts.
+                # Some chatterbox versions call torch.load() internally without map_location.
+                torch_mod = self._torch
+                if torch_mod is None:
+                    raise EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", "torch no disponible.")
+
+                target_device = torch_mod.device(self.real_backend_device)
+                original_torch_load = torch_mod.load
+
+                def _safe_torch_load(*args: Any, **kwargs: Any) -> Any:
+                    if target_device.type == "cpu" and "map_location" not in kwargs:
+                        kwargs["map_location"] = target_device
+                    return original_torch_load(*args, **kwargs)
+
+                torch_mod.load = _safe_torch_load
+                try:
+                    self._real_model = self._chatterbox_class.from_pretrained(device=target_device)
+                finally:
+                    torch_mod.load = original_torch_load
+
                 self.real_backend_cache_ready = True
                 self.log("Chatterbox listo para inferencia local.")
             except EngineHTTPError:
                 raise
             except Exception as error:  # noqa: BLE001
+                self.real_backend_error = str(error)
                 raise EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", str(error)) from error
 
     def _release_real_backend_model(self) -> None:
@@ -443,6 +485,7 @@ class EngineRuntime:
                 return DownloadJob(
                     profile=profile,
                     status="completed",
+                    stage="completed",
                     progress=100.0,
                     downloaded_bytes=1,
                     total_bytes=1,
@@ -452,6 +495,7 @@ class EngineRuntime:
             return DownloadJob(
                 profile=profile,
                 status="idle",
+                stage="idle",
                 progress=0.0,
                 downloaded_bytes=0,
                 total_bytes=1,
@@ -465,6 +509,7 @@ class EngineRuntime:
             return DownloadJob(
                 profile=profile,
                 status="completed",
+                stage="completed",
                 progress=100.0,
                 downloaded_bytes=total,
                 total_bytes=total,
@@ -476,6 +521,7 @@ class EngineRuntime:
         return DownloadJob(
             profile=profile,
             status="idle",
+            stage="idle",
             progress=progress,
             downloaded_bytes=downloaded,
             total_bytes=total,
@@ -500,6 +546,7 @@ class EngineRuntime:
                 job = DownloadJob(
                     profile=profile,
                     status="downloading",
+                    stage="queued",
                     progress=5.0,
                     downloaded_bytes=0,
                     total_bytes=1,
@@ -524,6 +571,7 @@ class EngineRuntime:
             job = DownloadJob(
                 profile=profile,
                 status="downloading",
+                stage="downloading",
                 progress=(downloaded / total * 100.0) if total else 0.0,
                 downloaded_bytes=downloaded,
                 total_bytes=total,
@@ -544,23 +592,31 @@ class EngineRuntime:
             with self._lock:
                 job = self.download_jobs[profile]
                 job.progress = 15.0
+                job.stage = "initializing_backend"
                 job.updated_at = time.time()
+            self.log("Fase Pro: inicializando backend real y resolviendo checkpoints de HuggingFace...")
             self._ensure_real_backend_model()
             with self._lock:
                 job = self.download_jobs[profile]
                 job.status = "completed"
+                job.stage = "completed"
                 job.progress = 100.0
                 job.downloaded_bytes = 1
                 job.total_bytes = 1
+                job.error = None
                 job.updated_at = time.time()
             self.log(f"Descarga completada para perfil {profile} (cache real lista).")
         except Exception as error:  # noqa: BLE001
+            detail = f"{type(error).__name__}: {error}"
             with self._lock:
                 job = self.download_jobs[profile]
                 job.status = "failed"
-                job.error = str(error)
+                job.stage = "failed"
+                job.error = detail
                 job.updated_at = time.time()
-            self.log(f"Descarga fallo para perfil {profile}: {error}")
+            self.real_backend_error = str(error)
+            self.log(f"Descarga fallo para perfil {profile}: {detail}")
+            self.log(traceback.format_exc())
 
     def _download_worker(self, profile: str) -> None:
         try:
@@ -573,17 +629,22 @@ class EngineRuntime:
             with self._lock:
                 job = self.download_jobs[profile]
                 job.status = "completed"
+                job.stage = "completed"
                 job.progress = 100.0
                 job.downloaded_bytes = job.total_bytes
+                job.error = None
                 job.updated_at = time.time()
             self.log(f"Descarga completada para perfil {profile}.")
         except Exception as error:  # noqa: BLE001
+            detail = f"{type(error).__name__}: {error}"
             with self._lock:
                 job = self.download_jobs[profile]
                 job.status = "failed"
-                job.error = str(error)
+                job.stage = "failed"
+                job.error = detail
                 job.updated_at = time.time()
-            self.log(f"Descarga fallo para perfil {profile}: {error}")
+            self.log(f"Descarga fallo para perfil {profile}: {detail}")
+            self.log(traceback.format_exc())
 
     def _download_component(self, profile: str, component: dict[str, Any]) -> None:
         component_name = str(component["name"])

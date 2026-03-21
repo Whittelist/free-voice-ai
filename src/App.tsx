@@ -14,6 +14,7 @@ import {
   type DownloadState,
   type EngineCapabilities,
   type EngineStatus,
+  getLocalNetworkPermissionState,
   LocalEngineError,
   getDefaultLocalEngineUrl,
   localEngineClient,
@@ -61,6 +62,8 @@ function App() {
   const [engineNote, setEngineNote] = useState<string>("Motor local no detectado.");
   const [engineCapabilities, setEngineCapabilities] = useState<EngineCapabilities | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
+  const lastLoggedDownloadErrorRef = useRef<string | null>(null);
+  const lastLoggedDownloadStageRef = useRef<string | null>(null);
 
   const workerRef = useRef<Worker | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -98,16 +101,46 @@ function App() {
   const refreshEngineStatus = useCallback(
     async (verbose = false) => {
       if (!PRO_ENABLED) return;
+      if (verbose) {
+        addLog("Modo Pro: comprobando motor local...");
+      }
       try {
         await localEngineClient.health(engineUrl);
       } catch {
+        const lnaPermission = await getLocalNetworkPermissionState();
+        const insecureRemote =
+          typeof window !== "undefined" &&
+          !window.isSecureContext &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1";
+        const secureRemote =
+          typeof window !== "undefined" &&
+          window.location.protocol === "https:" &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1";
+        const secureHint = insecureRemote
+          ? " El dominio no esta en contexto seguro (TLS); corrige el certificado del dominio en Railway."
+          : "";
+        const lnaHint = secureRemote
+          ? " Si usas Chrome/Edge reciente, permite 'Acceso a red local' para este dominio y vuelve a comprobar."
+          : "";
+        const lnaStateHint =
+          lnaPermission !== "unsupported"
+            ? ` Estado del permiso local-network-access: ${lnaPermission}.`
+            : "";
         setEngineStatus("not_installed");
         setEngineNote(
-          "No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat",
+          `No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat.${secureHint}${lnaHint}${lnaStateHint}`,
         );
         setEngineCapabilities(null);
         setDownloadState(null);
+        lastLoggedDownloadStageRef.current = null;
         if (verbose) addLog("Modo Pro: motor local no detectado.");
+        if (verbose && typeof window !== "undefined") {
+          addLog(
+            `Diagnostico Pro: origin=${window.location.origin}, secure=${window.isSecureContext}, motor=${engineUrl}`,
+          );
+        }
         return;
       }
 
@@ -134,43 +167,74 @@ function App() {
             ? ` Motivo: ${capabilities.real_backend_error}`
             : "";
           setEngineNote(
-            `Motor local detectado, pero en modo mock (sin clonacion real). Instala dependencias Pro o fija LOCAL_ENGINE_INFERENCE_BACKEND=chatterbox.${detail}`,
+            `Motor local detectado, pero en modo mock (sin clonacion real). Reejecuta .\\local_engine_windows\\run_local_engine.bat para instalar dependencias Pro, o fija LOCAL_ENGINE_INFERENCE_BACKEND=chatterbox.${detail}`,
           );
+          if (verbose) addLog("Modo Pro: backend en mock (sin clonacion real).");
+          lastLoggedDownloadStageRef.current = null;
           return;
         }
 
         if (download.status === "downloading") {
+          const stage = download.stage ?? "downloading";
+          const stageLabels: Record<string, string> = {
+            queued: "en cola",
+            downloading: "descargando componentes",
+            initializing_backend: "inicializando backend real (cache/checkpoints)",
+          };
+          const stageLabel = stageLabels[stage] ?? stage;
+          const stageMessage =
+            stage === "initializing_backend"
+              ? "Inicializando backend real y cacheando checkpoints (primera vez puede tardar varios minutos)..."
+              : "Descargando modelo Pro...";
           setEngineStatus("downloading");
-          setEngineNote("Descargando modelo Pro...");
+          setEngineNote(`${stageMessage} ${download.progress.toFixed(1)}%.`);
           setProgress({
-            status: "Descargando modelo Pro local...",
+            status: `${stageMessage} [fase: ${stageLabel}]`,
             progress: download.progress,
           });
+          if (lastLoggedDownloadStageRef.current !== stage) {
+            addLog(`Modo Pro: fase de descarga -> ${stageLabel}.`);
+            lastLoggedDownloadStageRef.current = stage;
+          }
+          if (verbose) addLog(`Modo Pro: descarga en curso (${download.progress.toFixed(1)}%).`);
           return;
         }
 
         if (download.status === "failed") {
           setEngineStatus("error");
-          setEngineNote(download.error || "La descarga fallo.");
+          setEngineNote(`Fallo en fase ${download.stage ?? "desconocida"}: ${download.error || "sin detalle"}`);
+          const currentError = `fase=${download.stage ?? "unknown"} | ${download.error || "La descarga fallo."}`;
+          if (lastLoggedDownloadErrorRef.current !== currentError) {
+            addLog(`Modo Pro ERROR: descarga fallida -> ${currentError}`);
+            lastLoggedDownloadErrorRef.current = currentError;
+          }
+          lastLoggedDownloadStageRef.current = null;
+          if (verbose) addLog(`Modo Pro: descarga fallida (${download.error ?? "sin detalle"}).`);
           return;
         }
 
         if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
           setEngineStatus("ready");
           setEngineNote("Motor local listo para sintesis y clonacion.");
+          lastLoggedDownloadErrorRef.current = null;
+          lastLoggedDownloadStageRef.current = null;
+          if (verbose) addLog("Modo Pro: motor listo.");
           return;
         }
 
         setEngineStatus("stopped");
         if (download.status === "completed") {
           setEngineNote("Modelo descargado. Falta cargarlo en memoria.");
+          if (verbose) addLog("Modo Pro: modelo descargado, pendiente de cargar.");
         } else {
           setEngineNote("Motor detectado. Modelo no descargado.");
+          if (verbose) addLog("Modo Pro: motor detectado, modelo pendiente de descarga.");
         }
+        lastLoggedDownloadStageRef.current = null;
       } catch (error) {
         setEngineStatus("error");
         if (error instanceof LocalEngineError) {
-          setEngineNote(`${error.code}: ${error.message}`);
+          setEngineNote(`API local ${error.status} - ${error.code}: ${error.message}`);
           if (verbose) addLog(`Modo Pro: ${error.code} (${error.status}).`);
         } else {
           setEngineNote("Error de conexion con API local.");

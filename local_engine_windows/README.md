@@ -39,6 +39,11 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
 .\local_engine_windows\run_local_engine.bat
 ```
 
+Requisito recomendado para Modo Pro real:
+
+1. Python `3.11` o `3.12`.
+2. Con Python `3.14` el motor puede iniciar, pero quedara en `mock` por incompatibilidades de `torch/chatterbox`.
+
 Alternativa manual:
 
 ```powershell
@@ -46,6 +51,17 @@ cd local_engine_windows
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe app.py
+```
+
+Nota de arranque:
+
+1. En el primer arranque instala dependencias y puede tardar.
+2. Los siguientes arranques reutilizan el entorno y son mucho mas rapidos.
+3. Si quieres forzar reinstalacion:
+
+```powershell
+$env:LOCAL_ENGINE_FORCE_SETUP="1"
+.\local_engine_windows\run_local_engine.bat
 ```
 
 ## Recuperacion rapida si se interrumpe el venv
@@ -78,6 +94,31 @@ Si aparece `Form data requires "python-multipart" to be installed`:
 
 ```powershell
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install python-multipart
+```
+
+Si sale `modo mock` con `No module named 'numpy'`:
+
+1. Suele significar que `.venv` se creo con Python 3.14.
+2. Recomendado: recrear `.venv` con Python 3.11 para habilitar clonacion real.
+
+```powershell
+Remove-Item -Recurse -Force .\local_engine_windows\.venv
+py -3.11 -m venv .\local_engine_windows\.venv
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements.txt
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements_pro.txt
+npm run local-engine
+```
+
+Si la descarga Pro se queda en `15%` y termina con error tipo `'NoneType' object is not callable`:
+
+1. Esa fase no es descarga HTTP: es inicializacion del backend Chatterbox y cache del modelo.
+2. Suele venir de incompatibilidad `perth/pkg_resources` con versiones nuevas de `setuptools`.
+3. El script actualizado ya lo corrige automaticamente, pero puedes forzarlo asi:
+
+```powershell
+$env:LOCAL_ENGINE_FORCE_SETUP="1"
+.\local_engine_windows\run_local_engine.bat
 ```
 
 ## Token local

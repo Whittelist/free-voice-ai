@@ -8,6 +8,7 @@ export type EngineStatus =
 export type DownloadState = {
   profile: string;
   status: "idle" | "downloading" | "completed" | "failed";
+  stage?: string;
   progress: number;
   downloaded_bytes: number;
   total_bytes: number;
@@ -93,6 +94,42 @@ const asBaseUrl = (baseUrl?: string): string => {
   }
 };
 
+const isLoopbackUrl = (candidateUrl: string): boolean => {
+  try {
+    const parsed = new URL(candidateUrl);
+    const host = parsed.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+};
+
+const canRequestLnaPrompt = (candidateUrl: string): boolean => {
+  if (typeof window === "undefined") return false;
+  if (!window.isSecureContext) return false;
+  return isLoopbackUrl(candidateUrl);
+};
+
+type LocalNetworkRequestInit = RequestInit & {
+  targetAddressSpace?: "local" | "private" | "loopback";
+};
+
+const warmupLoopbackPermission = async (baseUrl: string): Promise<void> => {
+  if (!canRequestLnaPrompt(baseUrl)) return;
+  try {
+    const init: LocalNetworkRequestInit = {
+      method: "GET",
+      mode: "cors" as const,
+      cache: "no-store" as const,
+      // Experimental option used by Chromium-based browsers for local-network prompts.
+      targetAddressSpace: "loopback",
+    };
+    await fetch(`${baseUrl}/health`, init);
+  } catch {
+    // Best-effort warm-up. We reattempt the original request immediately after this.
+  }
+};
+
 const parseJsonSafe = async (response: Response): Promise<unknown> => {
   const text = await response.text();
   if (!text) return null;
@@ -128,11 +165,22 @@ const requestJson = async <T>(
   init: RequestInit = {},
   baseUrl?: string,
 ): Promise<T> => {
+  const normalizedBaseUrl = asBaseUrl(baseUrl);
+  const requestUrl = `${normalizedBaseUrl}${path}`;
   let response: Response;
   try {
-    response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+    response = await fetch(requestUrl, init);
   } catch (error) {
-    throw toNetworkError(error);
+    if (canRequestLnaPrompt(normalizedBaseUrl)) {
+      try {
+        await warmupLoopbackPermission(normalizedBaseUrl);
+        response = await fetch(requestUrl, init);
+      } catch (retryError) {
+        throw toNetworkError(retryError);
+      }
+    } else {
+      throw toNetworkError(error);
+    }
   }
   const parsed = (await parseJsonSafe(response)) as ErrorBody | T | string | null;
   if (!response.ok) {
@@ -160,11 +208,22 @@ const requestBlob = async (
   init: RequestInit = {},
   baseUrl?: string,
 ): Promise<Blob> => {
+  const normalizedBaseUrl = asBaseUrl(baseUrl);
+  const requestUrl = `${normalizedBaseUrl}${path}`;
   let response: Response;
   try {
-    response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+    response = await fetch(requestUrl, init);
   } catch (error) {
-    throw toNetworkError(error);
+    if (canRequestLnaPrompt(normalizedBaseUrl)) {
+      try {
+        await warmupLoopbackPermission(normalizedBaseUrl);
+        response = await fetch(requestUrl, init);
+      } catch (retryError) {
+        throw toNetworkError(retryError);
+      }
+    } else {
+      throw toNetworkError(error);
+    }
   }
   if (!response.ok) {
     const parsed = (await parseJsonSafe(response)) as ErrorBody | string | null;
@@ -192,9 +251,41 @@ export const getDefaultLocalEngineUrl = (): string => {
   return asBaseUrl(envUrl || DEFAULT_URL);
 };
 
+export const getLocalNetworkPermissionState = async (): Promise<"granted" | "prompt" | "denied" | "unsupported"> => {
+  if (typeof window === "undefined" || !("permissions" in navigator) || !navigator.permissions?.query) {
+    return "unsupported";
+  }
+  try {
+    const permissionName = "local-network-access" as PermissionName;
+    const result = await navigator.permissions.query({ name: permissionName });
+    if (result.state === "granted" || result.state === "prompt" || result.state === "denied") {
+      return result.state;
+    }
+    return "unsupported";
+  } catch {
+    return "unsupported";
+  }
+};
+
 export const localEngineClient = {
   async health(baseUrl?: string): Promise<HealthPayload> {
-    return requestJson<HealthPayload>("/health", { method: "GET" }, baseUrl);
+    const retryDelaysMs = [0, 350, 900];
+    let lastError: unknown;
+
+    for (const delayMs of retryDelaysMs) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => {
+          globalThis.setTimeout(resolve, delayMs);
+        });
+      }
+      try {
+        return await requestJson<HealthPayload>("/health", { method: "GET" }, baseUrl);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new LocalEngineError("No se pudo comprobar /health", 0);
   },
 
   async version(baseUrl?: string): Promise<{ version: string }> {
