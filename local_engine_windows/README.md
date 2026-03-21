@@ -32,11 +32,48 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
 ## Quickstart (desarrollo)
 
 ```powershell
+.\local_engine_windows\run_local_engine.bat
+```
+
+Alternativa manual:
+
+```powershell
 cd local_engine_windows
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
+
+## Recuperacion rapida si se interrumpe el venv
+
+Si durante `Creating virtual environment...` cancelaste el proceso o quedo colgado:
+
+```powershell
+Remove-Item -Recurse -Force .\local_engine_windows\.venv
+.\local_engine_windows\run_local_engine.bat
+```
+
+Comprobacion de salud:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:57641/health
+```
+
+Si ves `No suitable Python runtime found`:
+
+1. El launcher `py` no encuentra esa version concreta.
+2. Ejecuta con `python.exe` directo (si lo tienes instalado):
+
+```powershell
+python -m venv .\local_engine_windows\.venv
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements.txt
+.\local_engine_windows\.venv\Scripts\python.exe .\local_engine_windows\app.py
+```
+
+Si aparece `Form data requires "python-multipart" to be installed`:
+
+```powershell
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install python-multipart
 ```
 
 ## Token local

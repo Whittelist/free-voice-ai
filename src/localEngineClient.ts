@@ -59,8 +59,33 @@ export class LocalEngineError extends Error {
 const DEFAULT_URL = "http://127.0.0.1:57641";
 
 const asBaseUrl = (baseUrl?: string): string => {
-  const raw = (baseUrl ?? DEFAULT_URL).trim();
-  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  let raw = (baseUrl ?? DEFAULT_URL).trim();
+  if (!raw) raw = DEFAULT_URL;
+
+  if (!/^[a-z]+:\/\//i.test(raw)) {
+    raw = `http://${raw}`;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+
+    // Local engine MVP only serves HTTP on loopback. Auto-correct common HTTPS mistake.
+    if (isLoopback && parsed.protocol === "https:") {
+      parsed.protocol = "http:";
+    }
+
+    // Remove accidental path fragments like /health from the base URL field.
+    parsed.pathname = "";
+    parsed.search = "";
+    parsed.hash = "";
+
+    const normalized = parsed.toString();
+    return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
+  } catch {
+    return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  }
 };
 
 const parseJsonSafe = async (response: Response): Promise<unknown> => {
@@ -241,4 +266,3 @@ export const localEngineClient = {
     );
   },
 };
-

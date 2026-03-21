@@ -22,6 +22,7 @@ Variables opcionales:
 
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
+3. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
 
 ## Deploy en Railway
 
@@ -56,11 +57,7 @@ Carpeta: [`local_engine_windows`](./local_engine_windows)
 Quickstart:
 
 ```powershell
-cd local_engine_windows
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+.\local_engine_windows\run_local_engine.bat
 ```
 
 Tambien puedes usar:
@@ -72,6 +69,13 @@ Tambien puedes usar:
 o desde npm (Windows):
 
 ```powershell
+npm run local-engine
+```
+
+Si se interrumpio la creacion del entorno virtual:
+
+```powershell
+Remove-Item -Recurse -Force .\local_engine_windows\.venv
 npm run local-engine
 ```
 
