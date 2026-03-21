@@ -1,12 +1,14 @@
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = [
+  "npm ci --include=dev --include=optional",
+  "test -d node_modules/@rolldown/binding-linux-x64-gnu || npm i @rolldown/binding-linux-x64-gnu@1.0.0-rc.10 --no-save"
+]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
 cmd = "npm run start:railway"
-

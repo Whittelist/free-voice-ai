@@ -36,6 +36,12 @@ Pasos:
 2. Despliega (build con `npm ci` + `npm run build`).
 3. Arranque con `npm run start:railway` (usa `$PORT`).
 
+Si aparece error de build por `rolldown` en Railway:
+
+1. Este repo ya fuerza Node 22 y optional deps en `nixpacks.toml`.
+2. Haz **Redeploy** para que Railway reconstruya con la nueva imagen/capa.
+3. Si Railway conserva cache vieja, usa `Deploy -> Clear Build Cache -> Redeploy`.
+
 Notas:
 
 1. Railway solo sirve frontend/control plane.
