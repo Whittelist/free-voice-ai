@@ -138,3 +138,12 @@ Errores tipados requeridos:
 7. Transformers.js docs: https://huggingface.co/docs/transformers.js
 8. Chrome Local Network Access: https://developer.chrome.com/blog/local-network-access
 
+
+## 10) Cambios implementados en codigo (marzo 2026)
+
+1. `Modo Rapido` migrado a `@huggingface/transformers` con preferencia WebGPU y fallback CPU/WASM.
+2. Motor local con backend configurable por `LOCAL_ENGINE_INFERENCE_BACKEND` (`auto`, `chatterbox`, `mock`).
+3. Integracion de inferencia real con `chatterbox-tts` cuando dependencias Pro estan disponibles.
+4. Soporte PNA/CORS para HTTPS -> localhost con `Access-Control-Allow-Private-Network`.
+5. Instalacion opcional de dependencias Pro desde `requirements_pro.txt` en `run_local_engine.bat`.
+6. UI local y frontend web muestran estado del backend para evitar falsos positivos de clonacion real.

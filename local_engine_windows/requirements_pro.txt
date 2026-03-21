@@ -1,0 +1,4 @@
+chatterbox-tts>=0.1.2
+numpy>=2.0.0
+librosa>=0.10.2
+soundfile>=0.13.0

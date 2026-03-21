@@ -30,6 +30,12 @@ class LocalEngineWindow:
         self.status_var = tk.StringVar(value="Detenido")
         self.server_url_var = tk.StringVar(value=f"http://{DEFAULT_HOST}:{DEFAULT_PORT}")
         self.token_var = tk.StringVar(value=self.runtime.api_token)
+        backend_text = self.runtime.inference_backend
+        if self.runtime.inference_backend == "chatterbox":
+            backend_text = f"chatterbox ({self.runtime.real_backend_device})"
+        if self.runtime.inference_backend == "mock" and self.runtime.real_backend_error:
+            backend_text = f"mock (fallback)"
+        self.backend_var = tk.StringVar(value=backend_text)
 
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.handle_close)
@@ -78,6 +84,15 @@ class LocalEngineWindow:
         tk.Label(status_frame, text="Token local:").grid(row=2, column=0, sticky="w", pady=(6, 0))
         token_entry = tk.Entry(status_frame, textvariable=self.token_var, state="readonly", width=56)
         token_entry.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+
+        tk.Label(status_frame, text="Backend:").grid(row=3, column=0, sticky="w", pady=(6, 0))
+        tk.Label(status_frame, textvariable=self.backend_var, font=("Segoe UI", 9, "bold")).grid(
+            row=3,
+            column=1,
+            sticky="w",
+            padx=(8, 0),
+            pady=(6, 0),
+        )
 
         actions = tk.Frame(container)
         actions.pack(fill=tk.X, pady=(0, 10))

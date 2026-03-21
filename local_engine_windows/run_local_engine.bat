@@ -63,6 +63,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
+if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
+  if exist "requirements_pro.txt" (
+    echo [INFO] Installing optional Pro dependencies...
+    ".venv\Scripts\python.exe" -m pip install -r requirements_pro.txt
+    if errorlevel 1 (
+      echo [WARN] No se pudieron instalar dependencias Pro completas.
+      echo [WARN] El motor arrancara en modo mock hasta resolver dependencias.
+    )
+  )
+)
+
 echo [INFO] Starting Studio Voice Local Engine...
 ".venv\Scripts\python.exe" app.py
 

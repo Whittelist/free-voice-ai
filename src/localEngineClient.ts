@@ -20,6 +20,11 @@ export type EngineCapabilities = {
   loaded_profile: string | null;
   profiles: string[];
   simulate_download: boolean;
+  inference_backend?: "mock" | "chatterbox" | string;
+  backend_mode?: "auto" | "mock" | "chatterbox" | string;
+  real_backend_available?: boolean;
+  real_backend_device?: string;
+  real_backend_error?: string | null;
 };
 
 export type HealthPayload = {
@@ -98,6 +103,15 @@ const parseJsonSafe = async (response: Response): Promise<unknown> => {
   }
 };
 
+const toNetworkError = (error: unknown): LocalEngineError => {
+  const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
+  return new LocalEngineError(
+    `No se pudo conectar con el motor local.${detail} Verifica que este activo en http://127.0.0.1:57641 y que tu dominio HTTPS este permitido por el motor.`,
+    0,
+    "NETWORK_ERROR",
+  );
+};
+
 const createHeaders = (token?: string, includeJson = true): Headers => {
   const headers = new Headers();
   if (includeJson) {
@@ -114,7 +128,12 @@ const requestJson = async <T>(
   init: RequestInit = {},
   baseUrl?: string,
 ): Promise<T> => {
-  const response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+  } catch (error) {
+    throw toNetworkError(error);
+  }
   const parsed = (await parseJsonSafe(response)) as ErrorBody | T | string | null;
   if (!response.ok) {
     const message =
@@ -141,7 +160,12 @@ const requestBlob = async (
   init: RequestInit = {},
   baseUrl?: string,
 ): Promise<Blob> => {
-  const response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${asBaseUrl(baseUrl)}${path}`, init);
+  } catch (error) {
+    throw toNetworkError(error);
+  }
   if (!response.ok) {
     const parsed = (await parseJsonSafe(response)) as ErrorBody | string | null;
     const message =

@@ -128,6 +128,17 @@ function App() {
         setEngineCapabilities(capabilities);
         setDownloadState(download);
 
+        if (capabilities.inference_backend === "mock") {
+          setEngineStatus("error");
+          const detail = capabilities.real_backend_error
+            ? ` Motivo: ${capabilities.real_backend_error}`
+            : "";
+          setEngineNote(
+            `Motor local detectado, pero en modo mock (sin clonacion real). Instala dependencias Pro o fija LOCAL_ENGINE_INFERENCE_BACKEND=chatterbox.${detail}`,
+          );
+          return;
+        }
+
         if (download.status === "downloading") {
           setEngineStatus("downloading");
           setEngineNote("Descargando modelo Pro...");
@@ -511,7 +522,8 @@ function App() {
                 <div className="capability-info">
                   Plataforma: {engineCapabilities.platform} | GPU:{" "}
                   {engineCapabilities.gpu_available ? "disponible" : "no detectada"} | Perfil cargado:{" "}
-                  {engineCapabilities.loaded_profile ?? "ninguno"}
+                  {engineCapabilities.loaded_profile ?? "ninguno"} | Backend:{" "}
+                  {engineCapabilities.inference_backend ?? "desconocido"}
                 </div>
               )}
             </div>

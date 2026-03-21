@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
@@ -9,6 +10,7 @@ import platform
 import re
 import secrets
 import struct
+import tempfile
 import threading
 import time
 import wave
@@ -21,6 +23,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 try:
     from local_engine_windows import __version__
@@ -37,9 +40,12 @@ DEFAULT_ALLOWED_ORIGINS = os.getenv(
 )
 DEFAULT_ALLOWED_ORIGIN_REGEX = os.getenv(
     "LOCAL_ENGINE_ALLOWED_ORIGIN_REGEX",
-    r"^https://([a-z0-9-]+\.)*railway\.app$|^https://([a-z0-9-]+\.)*up\.railway\.app$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
+    r"^https://[a-z0-9.-]+(:\d+)?$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
 )
-SIMULATE_DOWNLOAD = os.getenv("SIMULATE_MODEL_DOWNLOAD", "1") != "0"
+SIMULATE_DOWNLOAD = os.getenv("SIMULATE_MODEL_DOWNLOAD", "0") != "0"
+INFERENCE_BACKEND = os.getenv("LOCAL_ENGINE_INFERENCE_BACKEND", "auto").strip().lower()
+RELEASE_MODEL_ON_UNLOAD = os.getenv("LOCAL_ENGINE_RELEASE_MODEL_ON_UNLOAD", "1") != "0"
+REQUIRE_GPU = os.getenv("LOCAL_ENGINE_REQUIRE_GPU", "0") == "1"
 DOWNLOAD_CHUNK_BYTES = 1024 * 512
 DOWNLOAD_SLEEP_SECONDS = 0.015
 PUBLIC_PATHS = {"/health", "/version", "/docs", "/openapi.json", "/redoc"}
@@ -149,10 +155,24 @@ class EngineRuntime:
         self.download_threads: dict[str, threading.Thread] = {}
         self.loading_profiles: set[str] = set()
         self.loaded_profile: str | None = None
+        self.backend_lock = threading.Lock()
+
+        # Real-inference backend state (Chatterbox runtime).
+        self.inference_backend = "mock"
+        self.backend_mode = INFERENCE_BACKEND
+        self.real_backend_available = False
+        self.real_backend_error: str | None = None
+        self.real_backend_device = "cpu"
+        self.real_backend_cache_ready = False
+        self._torch: Any | None = None
+        self._np: Any | None = None
+        self._chatterbox_class: Any | None = None
+        self._real_model: Any | None = None
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.api_token = self._load_or_create_token()
+        self._init_inference_backend()
         self._load_state()
 
     def _load_or_create_token(self) -> str:
@@ -179,6 +199,139 @@ class EngineRuntime:
                 self.loaded_profile = loaded_profile
         except json.JSONDecodeError:
             self.log("No se pudo leer state.json, se ignora.")
+
+    def _init_inference_backend(self) -> None:
+        mode = self.backend_mode
+        if mode not in {"auto", "mock", "chatterbox"}:
+            self.log(f"LOCAL_ENGINE_INFERENCE_BACKEND invalido ({mode}), usando auto.")
+            mode = "auto"
+            self.backend_mode = "auto"
+
+        if mode == "mock":
+            self.inference_backend = "mock"
+            self.log("Backend de inferencia: mock (audio sintetico).")
+            return
+
+        try:
+            import numpy as np
+            import torch
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+            self._torch = torch
+            self._np = np
+            self._chatterbox_class = ChatterboxMultilingualTTS
+            self.real_backend_available = True
+
+            if torch.cuda.is_available():
+                self.real_backend_device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.real_backend_device = "mps"
+            else:
+                self.real_backend_device = "cpu"
+
+            self.inference_backend = "chatterbox"
+            self.log(f"Backend de inferencia: chatterbox ({self.real_backend_device}).")
+        except Exception as error:  # noqa: BLE001
+            self.real_backend_available = False
+            self.real_backend_error = str(error)
+            self.inference_backend = "mock"
+            if mode == "chatterbox":
+                self.log(f"No se pudo iniciar backend chatterbox: {error}")
+            self.log("Fallback al backend mock.")
+
+    def _ensure_real_backend_model(self) -> None:
+        if self.inference_backend != "chatterbox":
+            raise EngineHTTPError(503, "REAL_BACKEND_UNAVAILABLE", "Backend real no disponible.")
+        if not self.real_backend_available:
+            detail = self.real_backend_error or "Dependencias no instaladas."
+            raise EngineHTTPError(503, "REAL_BACKEND_UNAVAILABLE", detail)
+        if REQUIRE_GPU and self.real_backend_device == "cpu":
+            raise EngineHTTPError(
+                409,
+                "GPU_UNAVAILABLE",
+                "Este perfil requiere GPU y no se detecto aceleracion compatible.",
+            )
+
+        with self.backend_lock:
+            if self._real_model is not None:
+                return
+            try:
+                self.log("Inicializando Chatterbox Multilingual...")
+                assert self._chatterbox_class is not None
+                self._real_model = self._chatterbox_class.from_pretrained(device=self.real_backend_device)
+                self.real_backend_cache_ready = True
+                self.log("Chatterbox listo para inferencia local.")
+            except EngineHTTPError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                raise EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", str(error)) from error
+
+    def _release_real_backend_model(self) -> None:
+        with self.backend_lock:
+            self._real_model = None
+            if self._torch is not None and self.real_backend_device == "cuda":
+                with contextlib.suppress(Exception):
+                    self._torch.cuda.empty_cache()
+
+    def _wave_from_array(self, audio: Any, sample_rate: int) -> bytes:
+        if self._np is None:
+            raise EngineHTTPError(
+                500,
+                "REAL_BACKEND_INIT_FAILED",
+                "numpy no disponible para serializar audio del backend real.",
+            )
+
+        np_mod = self._np
+        if self._torch is not None and isinstance(audio, self._torch.Tensor):
+            array = audio.detach().cpu().float().numpy()
+        else:
+            array = np_mod.asarray(audio, dtype=np_mod.float32)
+
+        if array.ndim > 1:
+            array = array[0]
+        array = array.reshape(-1)
+        array = np_mod.clip(array, -1.0, 1.0)
+        pcm = (array * 32767.0).astype(np_mod.int16)
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            wav.writeframes(pcm.tobytes())
+        return buffer.getvalue()
+
+    def _prepare_reference_audio_path(self, reference_audio: bytes, extension: str) -> Path:
+        normalized_ext = extension.lower().strip() if extension else ".wav"
+        if not normalized_ext.startswith("."):
+            normalized_ext = f".{normalized_ext}"
+
+        tmp_dir = self.data_dir / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, raw_file = tempfile.mkstemp(prefix="ref_", suffix=normalized_ext, dir=str(tmp_dir))  # noqa: PTH123
+        os.close(fd)
+        raw_path = Path(raw_file)
+        raw_path.write_bytes(reference_audio)
+
+        if normalized_ext in {".wav", ".x-wav"}:
+            return raw_path
+
+        try:
+            import librosa
+            import soundfile as sf
+
+            audio, _ = librosa.load(str(raw_path), sr=24000, mono=True)
+            wav_path = raw_path.with_suffix(".wav")
+            sf.write(str(wav_path), audio, 24000)
+            raw_path.unlink(missing_ok=True)
+            return wav_path
+        except Exception as error:  # noqa: BLE001
+            raw_path.unlink(missing_ok=True)
+            raise EngineHTTPError(
+                400,
+                "INVALID_REFERENCE_AUDIO",
+                f"No se pudo convertir el audio de referencia: {error}",
+            ) from error
 
     @staticmethod
     def _validate_profile(profile: str) -> str:
@@ -221,6 +374,8 @@ class EngineRuntime:
 
     def is_profile_downloaded(self, profile: str) -> bool:
         profile = self._validate_profile(profile)
+        if self.inference_backend == "chatterbox":
+            return self.real_backend_cache_ready
         for component in self._components(profile):
             target = self._component_target(profile, component["name"])
             size_expected = self._component_size(component)
@@ -263,10 +418,15 @@ class EngineRuntime:
     def capabilities_payload(self) -> dict[str, Any]:
         return {
             "platform": platform.platform(),
-            "gpu_available": False,
+            "gpu_available": self.real_backend_available and self.real_backend_device != "cpu",
             "loaded_profile": self.loaded_profile,
             "profiles": list(MODEL_PROFILES.keys()),
             "simulate_download": self.simulate_download,
+            "inference_backend": self.inference_backend,
+            "backend_mode": self.backend_mode,
+            "real_backend_available": self.real_backend_available,
+            "real_backend_device": self.real_backend_device,
+            "real_backend_error": self.real_backend_error,
             "allowed_origins": self.allowed_origins,
             "allowed_origin_regex": self.allowed_origin_regex,
         }
@@ -277,6 +437,27 @@ class EngineRuntime:
             job = self.download_jobs.get(profile)
             if job:
                 return job.to_payload()
+
+        if self.inference_backend == "chatterbox":
+            if self.real_backend_cache_ready:
+                return DownloadJob(
+                    profile=profile,
+                    status="completed",
+                    progress=100.0,
+                    downloaded_bytes=1,
+                    total_bytes=1,
+                    started_at=0,
+                    updated_at=time.time(),
+                ).to_payload()
+            return DownloadJob(
+                profile=profile,
+                status="idle",
+                progress=0.0,
+                downloaded_bytes=0,
+                total_bytes=1,
+                started_at=0,
+                updated_at=time.time(),
+            ).to_payload()
 
         total = self._profile_total_size(profile)
         downloaded = self._profile_downloaded_bytes(profile)
@@ -309,6 +490,29 @@ class EngineRuntime:
             self.log(f"Perfil {profile} ya esta descargado.")
             return payload
 
+        if self.inference_backend == "chatterbox":
+            with self._lock:
+                current = self.download_jobs.get(profile)
+                if current and current.status == "downloading":
+                    return current.to_payload()
+
+                now = time.time()
+                job = DownloadJob(
+                    profile=profile,
+                    status="downloading",
+                    progress=5.0,
+                    downloaded_bytes=0,
+                    total_bytes=1,
+                    started_at=now,
+                    updated_at=now,
+                )
+                self.download_jobs[profile] = job
+                thread = threading.Thread(target=self._prefetch_real_model_worker, args=(profile,), daemon=True)
+                self.download_threads[profile] = thread
+                thread.start()
+            self.log(f"Descarga iniciada para perfil {profile} (backend chatterbox).")
+            return job.to_payload()
+
         with self._lock:
             current = self.download_jobs.get(profile)
             if current and current.status == "downloading":
@@ -334,6 +538,29 @@ class EngineRuntime:
 
         self.log(f"Descarga iniciada para perfil {profile}.")
         return job.to_payload()
+
+    def _prefetch_real_model_worker(self, profile: str) -> None:
+        try:
+            with self._lock:
+                job = self.download_jobs[profile]
+                job.progress = 15.0
+                job.updated_at = time.time()
+            self._ensure_real_backend_model()
+            with self._lock:
+                job = self.download_jobs[profile]
+                job.status = "completed"
+                job.progress = 100.0
+                job.downloaded_bytes = 1
+                job.total_bytes = 1
+                job.updated_at = time.time()
+            self.log(f"Descarga completada para perfil {profile} (cache real lista).")
+        except Exception as error:  # noqa: BLE001
+            with self._lock:
+                job = self.download_jobs[profile]
+                job.status = "failed"
+                job.error = str(error)
+                job.updated_at = time.time()
+            self.log(f"Descarga fallo para perfil {profile}: {error}")
 
     def _download_worker(self, profile: str) -> None:
         try:
@@ -441,7 +668,7 @@ class EngineRuntime:
 
     def load_model(self, profile: str) -> dict[str, Any]:
         profile = self._validate_profile(profile)
-        if not self.is_profile_downloaded(profile):
+        if self.inference_backend != "chatterbox" and not self.is_profile_downloaded(profile):
             raise EngineHTTPError(409, "MODEL_NOT_DOWNLOADED", "Modelo no descargado. Ejecuta /models/download.")
 
         with self._lock:
@@ -449,16 +676,23 @@ class EngineRuntime:
                 raise EngineHTTPError(409, "MODEL_LOADING", "El modelo ya se esta cargando.")
             self.loading_profiles.add(profile)
 
-        self.log(f"Cargando perfil {profile} en memoria...")
-        time.sleep(1.0)
+        try:
+            self.log(f"Cargando perfil {profile} en memoria...")
+            if self.inference_backend == "chatterbox":
+                self._ensure_real_backend_model()
+                self.real_backend_cache_ready = True
+            else:
+                time.sleep(1.0)
 
-        with self._lock:
-            self.loaded_profile = profile
-            self.loading_profiles.discard(profile)
-            self._save_state()
+            with self._lock:
+                self.loaded_profile = profile
+                self._save_state()
 
-        self.log(f"Perfil {profile} cargado.")
-        return {"status": "loaded", "profile": profile}
+            self.log(f"Perfil {profile} cargado.")
+            return {"status": "loaded", "profile": profile}
+        finally:
+            with self._lock:
+                self.loading_profiles.discard(profile)
 
     def unload_model(self, profile: str) -> dict[str, Any]:
         profile = self._validate_profile(profile)
@@ -466,6 +700,8 @@ class EngineRuntime:
             if self.loaded_profile == profile:
                 self.loaded_profile = None
                 self._save_state()
+                if self.inference_backend == "chatterbox" and RELEASE_MODEL_ON_UNLOAD:
+                    self._release_real_backend_model()
                 self.log(f"Perfil {profile} descargado de memoria.")
                 return {"status": "unloaded", "profile": profile}
         return {"status": "noop", "profile": profile}
@@ -506,16 +742,60 @@ class EngineRuntime:
         profile = self._validate_profile(profile)
         if self.loaded_profile != profile:
             raise EngineHTTPError(409, "MODEL_NOT_LOADED", "El perfil solicitado no esta cargado.")
+        if self.inference_backend == "chatterbox":
+            self._ensure_real_backend_model()
+            try:
+                assert self._real_model is not None
+                sample_rate = int(getattr(self._real_model, "sr", 24000))
+                wav = self._real_model.generate(text, language_id=_language)
+                return self._wave_from_array(wav, sample_rate)
+            except EngineHTTPError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                raise EngineHTTPError(500, "INFERENCE_FAILED", str(error)) from error
         return self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=0.0)
 
-    def clone(self, text: str, profile: str, _language: str, reference_audio: bytes) -> bytes:
+    def clone(
+        self,
+        text: str,
+        profile: str,
+        _language: str,
+        reference_audio: bytes,
+        reference_extension: str,
+    ) -> bytes:
         profile = self._validate_profile(profile)
         if self.loaded_profile != profile:
             raise EngineHTTPError(409, "MODEL_NOT_LOADED", "El perfil solicitado no esta cargado.")
         if len(reference_audio) < 1024:
             raise EngineHTTPError(400, "INVALID_REFERENCE_AUDIO", "El audio de referencia es demasiado corto.")
+        if self.inference_backend == "chatterbox":
+            self._ensure_real_backend_model()
+            reference_path = self._prepare_reference_audio_path(reference_audio, reference_extension)
+            try:
+                assert self._real_model is not None
+                sample_rate = int(getattr(self._real_model, "sr", 24000))
+                wav = self._real_model.generate(
+                    text,
+                    language_id=_language,
+                    audio_prompt_path=str(reference_path),
+                )
+                return self._wave_from_array(wav, sample_rate)
+            except EngineHTTPError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                raise EngineHTTPError(500, "INFERENCE_FAILED", str(error)) from error
+            finally:
+                reference_path.unlink(missing_ok=True)
         bias = self._voice_bias(reference_audio)
         return self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=bias)
+
+
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Any]) -> Any:
+        response = await call_next(request)
+        if request.headers.get("access-control-request-private-network", "").lower() == "true":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
 
 
 def create_app(runtime: EngineRuntime) -> FastAPI:
@@ -528,6 +808,7 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(PrivateNetworkAccessMiddleware)
 
     @app.exception_handler(EngineHTTPError)
     async def handle_engine_error(_: Request, error: EngineHTTPError) -> JSONResponse:
@@ -598,7 +879,7 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
 
         payload = await reference_audio.read()
         started_at = time.perf_counter()
-        wav_bytes = runtime.clone(text, quality_profile, language, payload)
+        wav_bytes = runtime.clone(text, quality_profile, language, payload, extension)
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         headers = {
             "X-Engine-Mode": "pro-local",

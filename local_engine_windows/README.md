@@ -16,8 +16,12 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
    - token local obligatorio en endpoints privados.
    - validacion de `Origin` por allowlist.
 4. Flujo de modelo:
-   - `download` resumible (simulado por defecto para desarrollo).
+   - `download` bajo demanda.
    - `load` / `unload`.
+5. Backend de inferencia:
+   - `auto` (default): intenta Chatterbox real y cae a `mock` si faltan dependencias.
+   - `chatterbox`: fuerza backend real.
+   - `mock`: audio sintetico para depuracion.
 5. Endpoints:
    - `GET /health`
    - `GET /version`
@@ -95,11 +99,17 @@ Si aparece `Form data requires "python-multipart" to be installed`:
      - `*.up.railway.app`
      - `localhost` y `127.0.0.1`
 5. `SIMULATE_MODEL_DOWNLOAD`:
-   - `1` (default): descarga simulada con archivos placeholder.
-   - `0`: intenta descarga HTTP real desde URLs del manifiesto.
+   - `0` (default): modo normal.
+   - `1`: descarga simulada con archivos placeholder.
+6. `LOCAL_ENGINE_INFERENCE_BACKEND`:
+   - `auto` (default)
+   - `chatterbox`
+   - `mock`
+7. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
+   - `1` para saltar instalacion de dependencias Pro en el `.bat`.
 
 ## Notas
 
 1. Este MVP prioriza arquitectura, seguridad local y experiencia de producto.
-2. La inferencia actual del daemon devuelve audio sintetico para validar flujo.
-3. El siguiente paso es conectar runtime real de Chatterbox ONNX.
+2. Si `chatterbox-tts` y dependencias estan instaladas, el daemon usa inferencia real.
+3. Si faltan dependencias, entra en `mock` y la UI web lo muestra como advertencia.
