@@ -50,6 +50,8 @@ python app.py
 1. `LOCAL_ENGINE_PORT` (default: `57641`)
 2. `LOCAL_ENGINE_DATA_DIR` (default: `%USERPROFILE%\.studio_voice_local`)
 3. `LOCAL_ENGINE_ALLOWED_ORIGINS` (CSV)
+   - Ejemplo para Railway:
+     `LOCAL_ENGINE_ALLOWED_ORIGINS=http://localhost:5173,https://tu-app.up.railway.app`
 4. `SIMULATE_MODEL_DOWNLOAD`:
    - `1` (default): descarga simulada con archivos placeholder.
    - `0`: intenta descarga HTTP real desde URLs del manifiesto.
@@ -59,4 +61,3 @@ python app.py
 1. Este MVP prioriza arquitectura, seguridad local y experiencia de producto.
 2. La inferencia actual del daemon devuelve audio sintetico para validar flujo.
 3. El siguiente paso es conectar runtime real de Chatterbox ONNX.
-

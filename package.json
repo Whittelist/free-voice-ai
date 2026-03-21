@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "serve -s dist",
+    "start": "node server.mjs",
+    "start:railway": "node server.mjs",
     "local-engine": "python local_engine_windows/app.py"
   },
   "dependencies": {

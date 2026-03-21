@@ -23,6 +23,26 @@ Variables opcionales:
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
 
+## Deploy en Railway
+
+Este repo ya incluye configuracion para Railway:
+
+1. [`railway.json`](./railway.json)
+2. [`nixpacks.toml`](./nixpacks.toml)
+
+Pasos:
+
+1. Conecta el repo en Railway.
+2. Despliega (build con `npm ci` + `npm run build`).
+3. Arranque con `npm run start:railway` (usa `$PORT`).
+
+Notas:
+
+1. Railway solo sirve frontend/control plane.
+2. El `Modo Pro` sigue ejecutando inferencia en localhost del usuario.
+3. Para pruebas reales de Modo Pro desde dominio Railway, configura en el motor local:
+   - `LOCAL_ENGINE_ALLOWED_ORIGINS=http://localhost:5173,https://TU-DOMINIO-RAILWAY`
+
 ## Motor local Windows (MVP)
 
 Carpeta: [`local_engine_windows`](./local_engine_windows)
@@ -48,4 +68,3 @@ Tambien puedes usar:
 1. Bind a `127.0.0.1`.
 2. Token local obligatorio en endpoints privados.
 3. Validacion estricta de `Origin`.
-
