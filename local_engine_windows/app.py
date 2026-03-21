@@ -3,9 +3,8 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+from typing import Any
 from tkinter import messagebox, scrolledtext
-
-import uvicorn
 
 try:
     from local_engine_windows.daemon import DEFAULT_HOST, DEFAULT_PORT, EngineRuntime, create_app
@@ -24,7 +23,7 @@ class LocalEngineWindow:
         self.runtime = EngineRuntime(logger=self.enqueue_log)
         self.api_app = create_app(self.runtime)
 
-        self.server: uvicorn.Server | None = None
+        self.server: Any | None = None
         self.server_thread: threading.Thread | None = None
         self.is_running = False
 
@@ -120,6 +119,15 @@ class LocalEngineWindow:
 
     def start_server(self) -> None:
         if self.is_running:
+            return
+        try:
+            import uvicorn
+        except ModuleNotFoundError:
+            messagebox.showerror(
+                "Dependencias faltantes",
+                "No se encontro 'uvicorn'.\n\nEjecuta:\n.\\local_engine_windows\\run_local_engine.bat",
+            )
+            self.enqueue_log("ERROR: uvicorn no disponible. Ejecuta run_local_engine.bat.")
             return
 
         config = uvicorn.Config(

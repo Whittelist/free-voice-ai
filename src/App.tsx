@@ -102,7 +102,9 @@ function App() {
         await localEngineClient.health(engineUrl);
       } catch {
         setEngineStatus("not_installed");
-        setEngineNote("No hay servicio local en localhost.");
+        setEngineNote(
+          "No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat",
+        );
         setEngineCapabilities(null);
         setDownloadState(null);
         if (verbose) addLog("Modo Pro: motor local no detectado.");
@@ -252,6 +254,21 @@ function App() {
   };
 
   const handleStartDownload = async () => {
+    if (engineStatus === "not_installed") {
+      const message =
+        "Motor local no detectado. Inicia .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar.";
+      addLog(`Modo Pro ERROR: ${message}`);
+      setEngineNote(message);
+      setEngineStatus("not_installed");
+      return;
+    }
+    if (!engineToken.trim()) {
+      const message = "Introduce el token local antes de descargar el modelo.";
+      addLog(`Modo Pro ERROR: ${message}`);
+      setEngineNote(message);
+      setEngineStatus("stopped");
+      return;
+    }
     try {
       addLog("Modo Pro: iniciando descarga del modelo...");
       await localEngineClient.downloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
@@ -602,4 +619,3 @@ function App() {
 }
 
 export default App;
-

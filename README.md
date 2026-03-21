@@ -69,6 +69,12 @@ Tambien puedes usar:
 .\local_engine_windows\run_local_engine.bat
 ```
 
+o desde npm (Windows):
+
+```powershell
+npm run local-engine
+```
+
 ## Seguridad local del motor
 
 1. Bind a `127.0.0.1`.
