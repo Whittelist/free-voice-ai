@@ -6,6 +6,7 @@ import json
 import math
 import os
 import platform
+import re
 import secrets
 import struct
 import threading
@@ -33,6 +34,10 @@ DEFAULT_DATA_DIR = Path(os.getenv("LOCAL_ENGINE_DATA_DIR", Path.home() / ".studi
 DEFAULT_ALLOWED_ORIGINS = os.getenv(
     "LOCAL_ENGINE_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,https://your-railway-domain.railway.app",
+)
+DEFAULT_ALLOWED_ORIGIN_REGEX = os.getenv(
+    "LOCAL_ENGINE_ALLOWED_ORIGIN_REGEX",
+    r"^https://([a-z0-9-]+\.)*railway\.app$|^https://([a-z0-9-]+\.)*up\.railway\.app$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
 )
 SIMULATE_DOWNLOAD = os.getenv("SIMULATE_MODEL_DOWNLOAD", "1") != "0"
 DOWNLOAD_CHUNK_BYTES = 1024 * 512
@@ -135,6 +140,8 @@ class EngineRuntime:
         self.state_path = self.data_dir / "state.json"
         self.token_path = self.data_dir / "api_token.txt"
         self.allowed_origins = [origin.strip() for origin in DEFAULT_ALLOWED_ORIGINS.split(",") if origin.strip()]
+        self.allowed_origin_regex = DEFAULT_ALLOWED_ORIGIN_REGEX.strip() or None
+        self.allowed_origin_pattern = re.compile(self.allowed_origin_regex) if self.allowed_origin_regex else None
         self.simulate_download = SIMULATE_DOWNLOAD
 
         self._lock = threading.Lock()
@@ -226,7 +233,7 @@ class EngineRuntime:
             return
 
         origin = request.headers.get("origin")
-        if origin and origin not in self.allowed_origins:
+        if origin and not self._is_origin_allowed(origin):
             raise EngineHTTPError(403, "ORIGIN_NOT_ALLOWED", "Origin no autorizado para este motor local.")
 
         authorization = request.headers.get("authorization", "")
@@ -235,6 +242,13 @@ class EngineRuntime:
         token = authorization.replace("Bearer ", "", 1).strip()
         if token != self.api_token:
             raise EngineHTTPError(401, "INVALID_TOKEN", "Token local invalido.")
+
+    def _is_origin_allowed(self, origin: str) -> bool:
+        if origin in self.allowed_origins:
+            return True
+        if self.allowed_origin_pattern is None:
+            return False
+        return bool(self.allowed_origin_pattern.match(origin))
 
     def health_payload(self) -> dict[str, Any]:
         return {
@@ -253,6 +267,8 @@ class EngineRuntime:
             "loaded_profile": self.loaded_profile,
             "profiles": list(MODEL_PROFILES.keys()),
             "simulate_download": self.simulate_download,
+            "allowed_origins": self.allowed_origins,
+            "allowed_origin_regex": self.allowed_origin_regex,
         }
 
     def get_download_status(self, profile: str) -> dict[str, Any]:
@@ -507,6 +523,7 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=runtime.allowed_origins,
+        allow_origin_regex=runtime.allowed_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

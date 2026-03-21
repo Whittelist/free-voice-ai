@@ -52,7 +52,12 @@ python app.py
 3. `LOCAL_ENGINE_ALLOWED_ORIGINS` (CSV)
    - Ejemplo para Railway:
      `LOCAL_ENGINE_ALLOWED_ORIGINS=http://localhost:5173,https://tu-app.up.railway.app`
-4. `SIMULATE_MODEL_DOWNLOAD`:
+4. `LOCAL_ENGINE_ALLOWED_ORIGIN_REGEX` (regex)
+   - Default recomendado ya incluido:
+     - `*.railway.app`
+     - `*.up.railway.app`
+     - `localhost` y `127.0.0.1`
+5. `SIMULATE_MODEL_DOWNLOAD`:
    - `1` (default): descarga simulada con archivos placeholder.
    - `0`: intenta descarga HTTP real desde URLs del manifiesto.
 
