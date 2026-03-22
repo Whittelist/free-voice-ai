@@ -22,7 +22,8 @@ Variables opcionales:
 
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
-3. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
+3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL=https://tu-dominio/LocalEngineSetup.exe`
+4. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
 
 ## Deploy en Railway
 

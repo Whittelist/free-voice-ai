@@ -52,12 +52,9 @@ const PRO_ADVANCED_DEFAULTS = {
   exaggeration: 0.5,
   temperature: 0.8,
 } as const;
-const LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL =
-  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL as string | undefined) ??
-  "https://github.com/Whittelist/Free-Elevenlabs/archive/refs/heads/main.zip";
-const LOCAL_ENGINE_WINDOWS_GUIDE_URL =
-  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_GUIDE_URL as string | undefined) ??
-  "https://github.com/Whittelist/Free-Elevenlabs/tree/main/local_engine_windows";
+const LOCAL_ENGINE_WINDOWS_INSTALLER_URL =
+  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL as string | undefined) ??
+  "https://github.com/Whittelist/free-voice-ai/releases/latest/download/StudioVoiceLocalEngine.exe";
 const PRO_DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   queued: "en cola",
   downloading: "descargando componentes",
@@ -785,23 +782,23 @@ function App() {
                 <span className={`engine-status ${currentStatusClass}`}>{engineStatus}</span>
               </div>
               <p className="engine-note">{engineNote}</p>
-              <div className="engine-actions">
+              <div className="engine-download-cta">
+                <p className="engine-note">
+                  <strong>Quieres usar el modelo Pro?</strong> Descarga el Local Engine para ejecutar la parte pesada
+                  fuera del navegador, evitar bloqueos de memoria y mejorar rendimiento.
+                </p>
                 <a
                   className="btn-secondary"
-                  href={LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL}
+                  href={LOCAL_ENGINE_WINDOWS_INSTALLER_URL}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <Download size={16} /> Descargar motor local (Windows)
+                  <Download size={16} /> Descargar Local Engine (.exe)
                 </a>
-                <a
-                  className="btn-secondary"
-                  href={LOCAL_ENGINE_WINDOWS_GUIDE_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Terminal size={16} /> Guia de instalacion
-                </a>
+                <small className="help-text">
+                  Pasos: 1) Descarga y ejecuta el <code>.exe</code>. 2) Copia el token de la ventana local.
+                  3) Pegalo aqui y pulsa <code>Preparar modo Pro</code>.
+                </small>
               </div>
 
               <div className="controls-row">
