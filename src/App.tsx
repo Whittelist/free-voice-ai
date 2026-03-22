@@ -52,6 +52,17 @@ const PRO_ADVANCED_DEFAULTS = {
   exaggeration: 0.5,
   temperature: 0.8,
 } as const;
+const LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL =
+  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL as string | undefined) ??
+  "https://github.com/Whittelist/Free-Elevenlabs/archive/refs/heads/main.zip";
+const LOCAL_ENGINE_WINDOWS_GUIDE_URL =
+  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_GUIDE_URL as string | undefined) ??
+  "https://github.com/Whittelist/Free-Elevenlabs/tree/main/local_engine_windows";
+const PRO_DOWNLOAD_STAGE_LABELS: Record<string, string> = {
+  queued: "en cola",
+  downloading: "descargando componentes",
+  initializing_backend: "inicializando backend real (cache/checkpoints)",
+};
 
 function App() {
   const [mode, setMode] = useState<AppMode>("quick");
@@ -75,6 +86,7 @@ function App() {
   const [engineNote, setEngineNote] = useState<string>("Motor local no detectado.");
   const [engineCapabilities, setEngineCapabilities] = useState<EngineCapabilities | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
+  const [isPreparingPro, setIsPreparingPro] = useState(false);
   const lastLoggedDownloadErrorRef = useRef<string | null>(null);
   const lastLoggedDownloadStageRef = useRef<string | null>(null);
 
@@ -189,12 +201,7 @@ function App() {
 
         if (download.status === "downloading") {
           const stage = download.stage ?? "downloading";
-          const stageLabels: Record<string, string> = {
-            queued: "en cola",
-            downloading: "descargando componentes",
-            initializing_backend: "inicializando backend real (cache/checkpoints)",
-          };
-          const stageLabel = stageLabels[stage] ?? stage;
+          const stageLabel = PRO_DOWNLOAD_STAGE_LABELS[stage] ?? stage;
           const stageMessage =
             stage === "initializing_backend"
               ? "Inicializando backend real y cacheando checkpoints (primera vez puede tardar varios minutos)..."
@@ -258,6 +265,106 @@ function App() {
     [addLog, engineToken, engineUrl],
   );
 
+  const ensureProModelReady = useCallback(
+    async (verbose = false) => {
+      if (!engineToken.trim()) {
+        setEngineStatus("stopped");
+        setEngineNote("Introduce el token local antes de preparar el modo Pro.");
+        throw new Error("Introduce el token local del motor Pro.");
+      }
+
+      try {
+        await localEngineClient.health(engineUrl);
+      } catch {
+        const message =
+          "Motor local no detectado. Descargalo/arrancalo con .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar.";
+        setEngineStatus("not_installed");
+        setEngineNote(message);
+        throw new Error(message);
+      }
+
+      setIsPreparingPro(true);
+      try {
+        let capabilities = await localEngineClient.capabilities(engineUrl, engineToken);
+        setEngineCapabilities(capabilities);
+
+        if (capabilities.inference_backend === "mock") {
+          const detail = capabilities.real_backend_error
+            ? ` Motivo: ${capabilities.real_backend_error}`
+            : "";
+          const message = `El motor local esta en modo mock y no permite clonacion real.${detail}`;
+          setEngineStatus("error");
+          setEngineNote(message);
+          throw new Error(message);
+        }
+
+        if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
+          setEngineStatus("ready");
+          setEngineNote("Motor local listo para sintesis y clonacion.");
+          return;
+        }
+
+        let download = await localEngineClient.downloadStatus(engineUrl, engineToken, PRO_MODEL_PROFILE);
+        setDownloadState(download);
+
+        if (download.status === "failed") {
+          throw new Error(
+            `Fallo en fase ${download.stage ?? "desconocida"}: ${download.error || "sin detalle"}`,
+          );
+        }
+
+        if (download.status !== "completed") {
+          if (download.status === "idle") {
+            addLog("Modo Pro: modelo no descargado, iniciando descarga automatica...");
+            await localEngineClient.downloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
+          } else if (verbose) {
+            addLog("Modo Pro: reusando descarga ya iniciada.");
+          }
+
+          while (true) {
+            await new Promise((resolve) => window.setTimeout(resolve, 850));
+            download = await localEngineClient.downloadStatus(engineUrl, engineToken, PRO_MODEL_PROFILE);
+            setDownloadState(download);
+
+            if (download.status === "failed") {
+              throw new Error(
+                `Fallo en fase ${download.stage ?? "desconocida"}: ${download.error || "sin detalle"}`,
+              );
+            }
+
+            if (download.status === "completed") {
+              addLog("Modo Pro: descarga del modelo completada.");
+              break;
+            }
+
+            const stage = download.stage ?? "downloading";
+            const stageLabel = PRO_DOWNLOAD_STAGE_LABELS[stage] ?? stage;
+            setEngineStatus("downloading");
+            setEngineNote(
+              `Preparando modelo Pro... ${download.progress.toFixed(1)}% (fase: ${stageLabel}).`,
+            );
+            setProgress({
+              status: `Preparando modelo Pro [${stageLabel}]`,
+              progress: download.progress,
+            });
+          }
+        }
+
+        setProgress({ status: "Cargando modelo Pro en memoria..." });
+        await localEngineClient.loadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
+        capabilities = await localEngineClient.capabilities(engineUrl, engineToken);
+        setEngineCapabilities(capabilities);
+        setEngineStatus("ready");
+        setEngineNote("Motor local listo para sintesis y clonacion.");
+        addLog("Modo Pro: modelo cargado y listo.");
+      } finally {
+        setIsPreparingPro(false);
+        setProgress(null);
+      }
+    },
+    [addLog, engineToken, engineUrl],
+  );
+
   useEffect(() => {
     localStorage.setItem("local_engine_token", engineToken);
   }, [engineToken]);
@@ -310,13 +417,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!PRO_ENABLED || mode !== "pro") return;
+    if (!PRO_ENABLED || mode !== "pro" || isPreparingPro) return;
     void refreshEngineStatus(true);
     const intervalId = window.setInterval(() => {
       void refreshEngineStatus(false);
     }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [mode, refreshEngineStatus]);
+  }, [isPreparingPro, mode, refreshEngineStatus]);
 
   useEffect(() => {
     if (mode === "quick") {
@@ -429,7 +536,7 @@ function App() {
 
   const handleUnloadModel = async () => {
     try {
-      addLog("Modo Pro: descargando modelo de memoria...");
+      addLog("Modo Pro: liberando RAM (descargando modelo de memoria)...");
       await localEngineClient.unloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
       await refreshEngineStatus(true);
     } catch (error) {
@@ -449,27 +556,7 @@ function App() {
   };
 
   const generatePro = async () => {
-    if (engineStatus === "not_installed") {
-      throw new Error("No se detecta el motor local. Instalalo e intentalo de nuevo.");
-    }
-    if (!engineToken.trim()) {
-      throw new Error("Introduce el token local del motor Pro.");
-    }
-    if (engineStatus === "downloading") {
-      throw new Error("La descarga sigue en curso. Espera a que finalice.");
-    }
-
-    if (engineStatus !== "ready") {
-      try {
-        await localEngineClient.loadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
-        await refreshEngineStatus(false);
-      } catch (error) {
-        if (error instanceof LocalEngineError && error.code === "MODEL_NOT_DOWNLOADED") {
-          throw new Error("Primero descarga el modelo Pro para poder continuar.");
-        }
-        throw error;
-      }
-    }
+    await ensureProModelReady(false);
 
     const advancedOptions = buildProAdvancedOptions();
     const payload = {
@@ -592,6 +679,18 @@ function App() {
     addLog("Modo Pro: audio generado correctamente.");
   };
 
+  const handleAutoPreparePro = async () => {
+    try {
+      addLog("Modo Pro: preparando flujo automatico (motor + modelo)...");
+      await ensureProModelReady(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error preparando Modo Pro.";
+      addLog(`Modo Pro ERROR: ${message}`);
+      setEngineStatus("error");
+      setEngineNote(message);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!text.trim()) return;
     setLogs([]);
@@ -686,6 +785,24 @@ function App() {
                 <span className={`engine-status ${currentStatusClass}`}>{engineStatus}</span>
               </div>
               <p className="engine-note">{engineNote}</p>
+              <div className="engine-actions">
+                <a
+                  className="btn-secondary"
+                  href={LOCAL_ENGINE_WINDOWS_DOWNLOAD_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download size={16} /> Descargar motor local (Windows)
+                </a>
+                <a
+                  className="btn-secondary"
+                  href={LOCAL_ENGINE_WINDOWS_GUIDE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Terminal size={16} /> Guia de instalacion
+                </a>
+              </div>
 
               <div className="controls-row">
                 <div className="control-group">
@@ -710,19 +827,49 @@ function App() {
               </div>
 
               <div className="engine-actions">
-                <button type="button" className="btn-secondary" onClick={() => void refreshEngineStatus(true)}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void handleAutoPreparePro()}
+                  disabled={isPreparingPro || isProcessing}
+                >
+                  {isPreparingPro ? <Loader2 className="animate-spin" size={16} /> : <Server size={16} />} Preparar
+                  modo Pro
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void refreshEngineStatus(true)}
+                  disabled={isPreparingPro || isProcessing}
+                >
                   <RefreshCw size={16} /> Comprobar motor
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => void handleStartDownload()}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void handleStartDownload()}
+                  disabled={isPreparingPro || isProcessing}
+                >
                   <Download size={16} /> Descargar modelo Pro
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => void handleLoadModel()}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void handleLoadModel()}
+                  disabled={isPreparingPro || isProcessing}
+                >
                   <Server size={16} /> Cargar modelo
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => void handleUnloadModel()}>
-                  <Server size={16} /> Descargar de memoria
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void handleUnloadModel()}
+                  disabled={isPreparingPro || isProcessing}
+                >
+                  <Server size={16} /> Liberar RAM
                 </button>
               </div>
+              <small className="help-text">`Liberar RAM` no borra el modelo en disco; solo lo descarga de memoria.</small>
 
               {downloadState && (
                 <div className="download-info">
@@ -855,7 +1002,11 @@ function App() {
           <div className="char-counter">{text.length} / 700 caracteres</div>
         </div>
 
-        <button className="btn-primary" onClick={() => void handleGenerate()} disabled={isProcessing || !text.trim()}>
+        <button
+          className="btn-primary"
+          onClick={() => void handleGenerate()}
+          disabled={isProcessing || isPreparingPro || !text.trim()}
+        >
           {isProcessing ? (
             <>
               <Loader2 className="animate-spin" size={20} />
@@ -868,6 +1019,11 @@ function App() {
             </>
           )}
         </button>
+        {mode === "pro" && (
+          <small className="help-text">
+            En Modo Pro, `Generar voz` prepara automaticamente el modelo (descarga + carga) si todavia no esta listo.
+          </small>
+        )}
 
         <div>
           <label className="console-label">
