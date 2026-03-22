@@ -49,6 +49,20 @@ RELEASE_MODEL_ON_UNLOAD = os.getenv("LOCAL_ENGINE_RELEASE_MODEL_ON_UNLOAD", "1")
 REQUIRE_GPU = os.getenv("LOCAL_ENGINE_REQUIRE_GPU", "0") == "1"
 DOWNLOAD_CHUNK_BYTES = 1024 * 512
 DOWNLOAD_SLEEP_SECONDS = 0.015
+EVENT_BUFFER_LIMIT = int(os.getenv("LOCAL_ENGINE_EVENT_BUFFER_LIMIT", "6000"))
+EVENT_POLL_MAX_LIMIT = int(os.getenv("LOCAL_ENGINE_EVENT_POLL_MAX_LIMIT", "500"))
+SAMPLING_LOG_STEP_PERCENT = float(os.getenv("LOCAL_ENGINE_SAMPLING_LOG_STEP_PERCENT", "2.0"))
+DEFAULT_CFG_WEIGHT = float(os.getenv("LOCAL_ENGINE_DEFAULT_CFG_WEIGHT", "0.5"))
+DEFAULT_EXAGGERATION = float(os.getenv("LOCAL_ENGINE_DEFAULT_EXAGGERATION", "0.5"))
+DEFAULT_TEMPERATURE = float(os.getenv("LOCAL_ENGINE_DEFAULT_TEMPERATURE", "0.8"))
+MIN_CFG_WEIGHT = 0.0
+MAX_CFG_WEIGHT = 1.5
+MIN_EXAGGERATION = 0.0
+MAX_EXAGGERATION = 2.0
+MIN_TEMPERATURE = 0.1
+MAX_TEMPERATURE = 2.0
+MIN_SEED = 0
+MAX_SEED = 2_147_483_647
 PUBLIC_PATHS = {"/health", "/version", "/docs", "/openapi.json", "/redoc"}
 PRO_PROFILE = "pro_multilingual_balanced"
 
@@ -139,6 +153,11 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=3000)
     language: str = Field(default="es")
     quality_profile: str = Field(default=PRO_PROFILE)
+    request_id: str | None = Field(default=None, max_length=128)
+    cfg_weight: float | None = Field(default=None)
+    exaggeration: float | None = Field(default=None)
+    temperature: float | None = Field(default=None)
+    seed: int | None = Field(default=None)
 
 
 class EngineRuntime:
@@ -159,6 +178,10 @@ class EngineRuntime:
         self.loading_profiles: set[str] = set()
         self.loaded_profile: str | None = None
         self.backend_lock = threading.Lock()
+        self.events_lock = threading.Lock()
+        self.events_cursor = 0
+        self.events: list[dict[str, Any]] = []
+        self.last_sampling_progress: dict[str, float] = {}
 
         # Real-inference backend state (Chatterbox runtime).
         self.inference_backend = "mock"
@@ -471,6 +494,182 @@ class EngineRuntime:
             "real_backend_error": self.real_backend_error,
             "allowed_origins": self.allowed_origins,
             "allowed_origin_regex": self.allowed_origin_regex,
+        }
+
+    @staticmethod
+    def _normalize_request_id(request_id: str | None) -> str:
+        if request_id:
+            cleaned = request_id.strip()
+            if cleaned:
+                return cleaned[:128]
+        return f"req_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
+
+    @staticmethod
+    def _validate_float_param(
+        value: float | None,
+        *,
+        name: str,
+        minimum: float,
+        maximum: float,
+        default: float,
+    ) -> float:
+        if value is None:
+            return default
+        numeric = float(value)
+        if math.isnan(numeric) or math.isinf(numeric):
+            raise EngineHTTPError(400, "INVALID_GENERATION_PARAM", f"Parametro invalido: {name}.")
+        if numeric < minimum or numeric > maximum:
+            raise EngineHTTPError(
+                400,
+                "INVALID_GENERATION_PARAM",
+                f"{name} fuera de rango [{minimum}, {maximum}] (recibido: {numeric}).",
+            )
+        return numeric
+
+    @staticmethod
+    def _validate_seed(seed: int | None) -> int | None:
+        if seed is None:
+            return None
+        numeric = int(seed)
+        if numeric < MIN_SEED or numeric > MAX_SEED:
+            raise EngineHTTPError(
+                400,
+                "INVALID_GENERATION_PARAM",
+                f"seed fuera de rango [{MIN_SEED}, {MAX_SEED}] (recibido: {numeric}).",
+            )
+        return numeric
+
+    def _resolve_generation_options(
+        self,
+        *,
+        cfg_weight: float | None = None,
+        exaggeration: float | None = None,
+        temperature: float | None = None,
+        seed: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "cfg_weight": self._validate_float_param(
+                cfg_weight,
+                name="cfg_weight",
+                minimum=MIN_CFG_WEIGHT,
+                maximum=MAX_CFG_WEIGHT,
+                default=DEFAULT_CFG_WEIGHT,
+            ),
+            "exaggeration": self._validate_float_param(
+                exaggeration,
+                name="exaggeration",
+                minimum=MIN_EXAGGERATION,
+                maximum=MAX_EXAGGERATION,
+                default=DEFAULT_EXAGGERATION,
+            ),
+            "temperature": self._validate_float_param(
+                temperature,
+                name="temperature",
+                minimum=MIN_TEMPERATURE,
+                maximum=MAX_TEMPERATURE,
+                default=DEFAULT_TEMPERATURE,
+            ),
+            "seed": self._validate_seed(seed),
+        }
+
+    @staticmethod
+    def _format_generation_options(options: dict[str, Any]) -> str:
+        seed_label = options.get("seed")
+        return (
+            f"cfg_weight={options['cfg_weight']:.2f}, "
+            f"exaggeration={options['exaggeration']:.2f}, "
+            f"temperature={options['temperature']:.2f}, "
+            f"seed={seed_label if seed_label is not None else 'auto'}"
+        )
+
+    @contextlib.contextmanager
+    def _torch_seed_context(self, seed: int | None):
+        if seed is None or self._torch is None:
+            yield
+            return
+
+        torch_mod = self._torch
+        devices: list[int] = []
+        with contextlib.suppress(Exception):
+            if torch_mod.cuda.is_available():
+                devices = list(range(int(torch_mod.cuda.device_count())))
+
+        try:
+            with torch_mod.random.fork_rng(devices=devices, enabled=True):
+                torch_mod.manual_seed(seed)
+                if devices:
+                    torch_mod.cuda.manual_seed_all(seed)
+                yield
+                return
+        except Exception:
+            # Fallback path for torch builds without fork_rng support in this runtime.
+            torch_mod.manual_seed(seed)
+            if devices:
+                torch_mod.cuda.manual_seed_all(seed)
+            yield
+
+    def _emit_event(
+        self,
+        request_id: str,
+        phase: str,
+        message: str,
+        progress: float | None = None,
+        level: str = "info",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "id": 0,
+            "timestamp": time.time(),
+            "request_id": request_id,
+            "phase": phase,
+            "level": level,
+            "message": message,
+        }
+        if progress is not None:
+            payload["progress"] = round(max(0.0, min(100.0, progress)), 2)
+
+        with self.events_lock:
+            self.events_cursor += 1
+            payload["id"] = self.events_cursor
+            self.events.append(payload)
+            if len(self.events) > EVENT_BUFFER_LIMIT:
+                del self.events[: len(self.events) - EVENT_BUFFER_LIMIT]
+
+        self.log(f"[{request_id}] {phase}: {message}")
+        return payload
+
+    def _emit_sampling_progress(self, request_id: str, progress: float) -> None:
+        clamped = round(max(0.0, min(100.0, progress)), 2)
+        with self.events_lock:
+            last = self.last_sampling_progress.get(request_id)
+            should_emit = last is None or (clamped - last) >= SAMPLING_LOG_STEP_PERCENT or clamped >= 100.0
+            if should_emit:
+                self.last_sampling_progress[request_id] = clamped
+        if should_emit:
+            self._emit_event(
+                request_id=request_id,
+                phase="sampling",
+                message=f"Sampling {clamped:.1f}%",
+                progress=clamped,
+            )
+
+    def _clear_sampling_progress(self, request_id: str) -> None:
+        with self.events_lock:
+            self.last_sampling_progress.pop(request_id, None)
+
+    def poll_events(self, cursor: int = 0, request_id: str | None = None, limit: int = 200) -> dict[str, Any]:
+        cursor = max(0, int(cursor))
+        limit = max(1, min(EVENT_POLL_MAX_LIMIT, int(limit)))
+
+        with self.events_lock:
+            filtered = [event for event in self.events if event["id"] > cursor]
+            if request_id:
+                filtered = [event for event in filtered if event["request_id"] == request_id]
+            chunk = filtered[:limit]
+
+        next_cursor = chunk[-1]["id"] if chunk else cursor
+        return {
+            "events": chunk,
+            "next_cursor": next_cursor,
         }
 
     def get_download_status(self, profile: str) -> dict[str, Any]:
@@ -799,22 +998,102 @@ class EngineRuntime:
         value = int.from_bytes(digest[:2], byteorder="big", signed=False)
         return (value % 60) - 30.0
 
-    def tts(self, text: str, profile: str, _language: str) -> bytes:
+    @contextlib.contextmanager
+    def _sampling_hook_context(self, request_id: str):
+        # chatterbox T3 uses tqdm(range(...), desc="Sampling"), we wrap it to forward progress.
+        try:
+            from chatterbox.models.t3 import t3 as t3_module
+        except Exception:  # noqa: BLE001
+            yield
+            return
+
+        original_tqdm = getattr(t3_module, "tqdm", None)
+        if original_tqdm is None:
+            yield
+            return
+
+        runtime = self
+
+        def _iter_with_progress(iterable: Any, total: int) -> Any:
+            total_safe = max(1, total)
+            for index, item in enumerate(iterable, start=1):
+                progress = 5.0 + (index / total_safe) * 90.0
+                runtime._emit_sampling_progress(request_id, progress)
+                yield item
+
+        def _wrapped_tqdm(iterable: Any, *args: Any, **kwargs: Any) -> Any:
+            desc = str(kwargs.get("desc", "")).strip().lower()
+            total = kwargs.get("total")
+            if total is None:
+                with contextlib.suppress(TypeError):
+                    total = len(iterable)  # type: ignore[arg-type]
+
+            if total and "sampling" in desc:
+                return _iter_with_progress(iterable, int(total))
+
+            return original_tqdm(iterable, *args, **kwargs)
+
+        t3_module.tqdm = _wrapped_tqdm
+        try:
+            yield
+        finally:
+            t3_module.tqdm = original_tqdm
+
+    def tts(
+        self,
+        text: str,
+        profile: str,
+        _language: str,
+        request_id: str | None = None,
+        cfg_weight: float | None = None,
+        exaggeration: float | None = None,
+        temperature: float | None = None,
+        seed: int | None = None,
+    ) -> bytes:
         profile = self._validate_profile(profile)
+        req_id = self._normalize_request_id(request_id)
+        options = self._resolve_generation_options(
+            cfg_weight=cfg_weight,
+            exaggeration=exaggeration,
+            temperature=temperature,
+            seed=seed,
+        )
+        options_label = self._format_generation_options(options)
         if self.loaded_profile != profile:
+            self._emit_event(req_id, "failed", "El perfil solicitado no esta cargado.", level="error")
             raise EngineHTTPError(409, "MODEL_NOT_LOADED", "El perfil solicitado no esta cargado.")
+        self._emit_event(req_id, "start", f"TTS iniciado ({_language}) [{options_label}].", progress=1.0)
         if self.inference_backend == "chatterbox":
+            self._emit_event(req_id, "initializing_backend", "Validando backend real...", progress=3.0)
             self._ensure_real_backend_model()
             try:
                 assert self._real_model is not None
                 sample_rate = int(getattr(self._real_model, "sr", 24000))
-                wav = self._real_model.generate(text, language_id=_language)
-                return self._wave_from_array(wav, sample_rate)
+                self._emit_event(req_id, "sampling", "Iniciando muestreo de voz...", progress=5.0)
+                with self._sampling_hook_context(req_id), self._torch_seed_context(options["seed"]):
+                    wav = self._real_model.generate(
+                        text,
+                        language_id=_language,
+                        exaggeration=options["exaggeration"],
+                        cfg_weight=options["cfg_weight"],
+                        temperature=options["temperature"],
+                    )
+                self._emit_event(req_id, "serializing_audio", "Serializando WAV...", progress=96.0)
+                wav_bytes = self._wave_from_array(wav, sample_rate)
+                self._emit_event(req_id, "completed", "TTS completado.", progress=100.0)
+                return wav_bytes
             except EngineHTTPError:
+                self._emit_event(req_id, "failed", "Fallo de inferencia TTS.", level="error", progress=100.0)
                 raise
             except Exception as error:  # noqa: BLE001
+                self._emit_event(req_id, "failed", f"Fallo de inferencia TTS: {error}", level="error", progress=100.0)
                 raise EngineHTTPError(500, "INFERENCE_FAILED", str(error)) from error
-        return self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=0.0)
+            finally:
+                self._clear_sampling_progress(req_id)
+        self._emit_event(req_id, "sampling", f"Generando audio sintetico (mock) [{options_label}]...", progress=50.0)
+        wav_bytes = self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=0.0)
+        self._emit_event(req_id, "completed", "TTS mock completado.", progress=100.0)
+        return wav_bytes
 
     def clone(
         self,
@@ -823,32 +1102,64 @@ class EngineRuntime:
         _language: str,
         reference_audio: bytes,
         reference_extension: str,
+        request_id: str | None = None,
+        cfg_weight: float | None = None,
+        exaggeration: float | None = None,
+        temperature: float | None = None,
+        seed: int | None = None,
     ) -> bytes:
         profile = self._validate_profile(profile)
+        req_id = self._normalize_request_id(request_id)
+        options = self._resolve_generation_options(
+            cfg_weight=cfg_weight,
+            exaggeration=exaggeration,
+            temperature=temperature,
+            seed=seed,
+        )
+        options_label = self._format_generation_options(options)
         if self.loaded_profile != profile:
+            self._emit_event(req_id, "failed", "El perfil solicitado no esta cargado.", level="error")
             raise EngineHTTPError(409, "MODEL_NOT_LOADED", "El perfil solicitado no esta cargado.")
         if len(reference_audio) < 1024:
+            self._emit_event(req_id, "failed", "El audio de referencia es demasiado corto.", level="error")
             raise EngineHTTPError(400, "INVALID_REFERENCE_AUDIO", "El audio de referencia es demasiado corto.")
+        self._emit_event(req_id, "start", f"Clone iniciado ({_language}) [{options_label}].", progress=1.0)
         if self.inference_backend == "chatterbox":
+            self._emit_event(req_id, "initializing_backend", "Validando backend real...", progress=3.0)
             self._ensure_real_backend_model()
+            self._emit_event(req_id, "preparing_reference", "Preparando audio de referencia...", progress=4.0)
             reference_path = self._prepare_reference_audio_path(reference_audio, reference_extension)
             try:
                 assert self._real_model is not None
                 sample_rate = int(getattr(self._real_model, "sr", 24000))
-                wav = self._real_model.generate(
-                    text,
-                    language_id=_language,
-                    audio_prompt_path=str(reference_path),
-                )
-                return self._wave_from_array(wav, sample_rate)
+                self._emit_event(req_id, "sampling", "Iniciando muestreo de clonacion...", progress=5.0)
+                with self._sampling_hook_context(req_id), self._torch_seed_context(options["seed"]):
+                    wav = self._real_model.generate(
+                        text,
+                        language_id=_language,
+                        audio_prompt_path=str(reference_path),
+                        exaggeration=options["exaggeration"],
+                        cfg_weight=options["cfg_weight"],
+                        temperature=options["temperature"],
+                    )
+                self._emit_event(req_id, "serializing_audio", "Serializando WAV...", progress=96.0)
+                wav_bytes = self._wave_from_array(wav, sample_rate)
+                self._emit_event(req_id, "completed", "Clone completado.", progress=100.0)
+                return wav_bytes
             except EngineHTTPError:
+                self._emit_event(req_id, "failed", "Fallo de inferencia de clonacion.", level="error", progress=100.0)
                 raise
             except Exception as error:  # noqa: BLE001
+                self._emit_event(req_id, "failed", f"Fallo de inferencia de clonacion: {error}", level="error", progress=100.0)
                 raise EngineHTTPError(500, "INFERENCE_FAILED", str(error)) from error
             finally:
+                self._clear_sampling_progress(req_id)
                 reference_path.unlink(missing_ok=True)
         bias = self._voice_bias(reference_audio)
-        return self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=bias)
+        self._emit_event(req_id, "sampling", f"Generando clon sintetico (mock) [{options_label}]...", progress=50.0)
+        wav_bytes = self._synthesize_wave(text=text, sample_rate=24000, voice_bias_hz=bias)
+        self._emit_event(req_id, "completed", "Clone mock completado.", progress=100.0)
+        return wav_bytes
 
 
 class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
@@ -901,6 +1212,16 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
         runtime.authorize(request)
         return runtime.get_download_status(profile)
 
+    @app.get("/events/poll")
+    async def events_poll(
+        request: Request,
+        cursor: int = 0,
+        request_id: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        runtime.authorize(request)
+        return runtime.poll_events(cursor=cursor, request_id=request_id, limit=limit)
+
     @app.post("/models/load")
     async def models_load(request: Request, body: LoadRequest) -> dict[str, Any]:
         runtime.authorize(request)
@@ -914,13 +1235,24 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
     @app.post("/tts")
     async def tts(request: Request, body: TTSRequest) -> StreamingResponse:
         runtime.authorize(request)
+        req_id = runtime._normalize_request_id(body.request_id)
         started_at = time.perf_counter()
-        wav_bytes = runtime.tts(body.text, body.quality_profile, body.language)
+        wav_bytes = runtime.tts(
+            body.text,
+            body.quality_profile,
+            body.language,
+            request_id=req_id,
+            cfg_weight=body.cfg_weight,
+            exaggeration=body.exaggeration,
+            temperature=body.temperature,
+            seed=body.seed,
+        )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         headers = {
             "X-Engine-Mode": "pro-local",
             "X-Model-Profile": body.quality_profile,
             "X-Latency-Ms": str(elapsed_ms),
+            "X-Request-Id": req_id,
         }
         return StreamingResponse(io.BytesIO(wav_bytes), media_type="audio/wav", headers=headers)
 
@@ -930,9 +1262,15 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
         text: str = Form(...),
         language: str = Form("es"),
         quality_profile: str = Form(PRO_PROFILE),
+        request_id: str | None = Form(None),
+        cfg_weight: float | None = Form(None),
+        exaggeration: float | None = Form(None),
+        temperature: float | None = Form(None),
+        seed: int | None = Form(None),
         reference_audio: UploadFile = File(...),
     ) -> StreamingResponse:
         runtime.authorize(request)
+        req_id = runtime._normalize_request_id(request_id)
         filename = reference_audio.filename or ""
         extension = Path(filename).suffix.lower()
         if extension not in {".wav", ".mp3", ".mpeg", ".x-wav"}:
@@ -940,12 +1278,24 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
 
         payload = await reference_audio.read()
         started_at = time.perf_counter()
-        wav_bytes = runtime.clone(text, quality_profile, language, payload, extension)
+        wav_bytes = runtime.clone(
+            text,
+            quality_profile,
+            language,
+            payload,
+            extension,
+            request_id=req_id,
+            cfg_weight=cfg_weight,
+            exaggeration=exaggeration,
+            temperature=temperature,
+            seed=seed,
+        )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         headers = {
             "X-Engine-Mode": "pro-local",
             "X-Model-Profile": quality_profile,
             "X-Latency-Ms": str(elapsed_ms),
+            "X-Request-Id": req_id,
         }
         return StreamingResponse(io.BytesIO(wav_bytes), media_type="audio/wav", headers=headers)
 

@@ -38,10 +38,30 @@ export type SpeechRequest = {
   text: string;
   language: "es" | "en";
   quality_profile: string;
+  request_id?: string;
+  cfg_weight?: number;
+  exaggeration?: number;
+  temperature?: number;
+  seed?: number;
 };
 
 export type CloneRequest = SpeechRequest & {
   reference_audio: File;
+};
+
+export type EngineEvent = {
+  id: number;
+  timestamp: number;
+  request_id: string;
+  phase: string;
+  level: "info" | "error" | string;
+  message: string;
+  progress?: number;
+};
+
+export type EventPollResponse = {
+  events: EngineEvent[];
+  next_cursor: number;
 };
 
 type ErrorBody = {
@@ -327,6 +347,33 @@ export const localEngineClient = {
     );
   },
 
+  async pollEvents(
+    baseUrl: string,
+    token: string,
+    options: {
+      cursor?: number;
+      request_id?: string;
+      limit?: number;
+    } = {},
+  ): Promise<EventPollResponse> {
+    const cursor = Math.max(0, Math.floor(options.cursor ?? 0));
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 200)));
+    const params = new URLSearchParams();
+    params.set("cursor", String(cursor));
+    params.set("limit", String(limit));
+    if (options.request_id?.trim()) {
+      params.set("request_id", options.request_id.trim());
+    }
+    return requestJson<EventPollResponse>(
+      `/events/poll?${params.toString()}`,
+      {
+        method: "GET",
+        headers: createHeaders(token, false),
+      },
+      baseUrl,
+    );
+  },
+
   async loadModel(baseUrl: string, token: string, profile: string): Promise<{ status: string }> {
     return requestJson<{ status: string }>(
       "/models/load",
@@ -368,6 +415,21 @@ export const localEngineClient = {
     body.append("text", payload.text);
     body.append("language", payload.language);
     body.append("quality_profile", payload.quality_profile);
+    if (payload.request_id?.trim()) {
+      body.append("request_id", payload.request_id.trim());
+    }
+    if (payload.cfg_weight !== undefined) {
+      body.append("cfg_weight", String(payload.cfg_weight));
+    }
+    if (payload.exaggeration !== undefined) {
+      body.append("exaggeration", String(payload.exaggeration));
+    }
+    if (payload.temperature !== undefined) {
+      body.append("temperature", String(payload.temperature));
+    }
+    if (payload.seed !== undefined) {
+      body.append("seed", String(payload.seed));
+    }
     body.append("reference_audio", payload.reference_audio);
 
     return requestBlob(

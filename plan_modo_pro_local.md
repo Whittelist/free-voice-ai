@@ -1,149 +1,217 @@
-# Plan Modo Pro Local: TTS y Clonacion de Maxima Calidad
+# Plan + Informe Fase A (Ejecutada): WebGPU en Navegador vs Ventana Local
 
-Fecha: 21 de marzo de 2026
+Fecha: 22 de marzo de 2026
+Documento objetivo: dejar cerrado el analisis para retomar implementacion otro dia.
 
 ## 1) Resumen ejecutivo
 
-Este proyecto se ejecutara con arquitectura dual:
+1. La comparacion "modelo pesado en navegador (WebGPU) vs ventana local" si compensa en arquitectura y fiabilidad operativa.
+2. El cuello principal actual no es la app web, sino que el motor local esta corriendo con `torch` CPU-only (`2.6.0+cpu`), por eso aun no exprime GPU.
+3. Para cargas pesadas, el navegador arrastra dos riesgos: descarga inicial multi-GB y dependencia de WebGPU (experimental + posibles fallbacks).
+4. La ventana local elimina esas limitaciones web y permite control total del entorno, pero el salto real de rendimiento llegara al activar CUDA en el runtime local.
+5. Fase A queda entregada con datos reales medidos + proyeccion cuantificada.
 
-1. `Modo Rapido` (browser-only): inferencia en navegador para arranque inmediato.
-2. `Modo Pro` (motor local instalable): inferencia pesada en hardware del usuario para maxima calidad y clonacion real.
+## 2) Alcance de Fase A (lo ejecutado)
 
-Railway se mantiene como `control plane` (frontend, auth, configuracion y producto), no como plano de inferencia pesada.
+1. Revision tecnica de estado real del proyecto.
+2. Benchmark real del backend local actual (`chatterbox` en CPU) para `tts` y `clone`.
+3. Analisis de tamanos de modelos y tiempos de primera descarga.
+4. Proyeccion numerica de mejora al pasar de CPU a GPU en la ventana local.
+5. Entrega de conclusiones y plan de continuacion (sin ejecutar Fase B/C).
 
-## 2) Decisiones cerradas para MVP
+## 3) Entorno medido (tu maquina)
 
-1. Plataforma inicial: **Windows first**.
-2. Stack del motor local: **Python + FastAPI**.
-3. Modelo pro inicial: **perfil unico multilingual (ES/EN)**.
-4. Descarga de modelos: **bajo demanda**.
-5. Conexion web -> motor: **localhost directo**.
-6. Seguridad local: **token local + Origin estricto**.
-7. UX de confianza: **app visible; cerrar ventana = parar motor y conexion**.
-8. Railway: **sin relay de inferencia en MVP**.
+1. `capabilities` del motor local:
+   - `inference_backend: chatterbox`
+   - `real_backend_device: cpu`
+   - `gpu_available: false` (desde el runtime actual)
+2. PyTorch instalado en `.venv`:
+   - `torch 2.6.0+cpu`
+   - `torch.cuda.is_available() = False`
+3. GPU detectada por sistema:
+   - `NVIDIA GeForce RTX 5070 (12 GB)`
+   - `NVIDIA GeForce GTX 1060 6GB`
+4. Conclusion tecnica:
+   - Hay GPU fisica disponible, pero el entorno actual no la usa por wheel CPU-only.
 
-## 3) Estado actual y gap
+## 4) Datos medidos (benchmark real Fase A)
 
-Estado actual del frontend:
+### 4.1 Serie larga (muestras representativas)
+| Caso | Endpoint | Idioma | Palabras | Audio (s) | Tiempo total (s) | RTF |
+|---|---|---:|---:|---:|---:|---:|
+| Warmup corto | `tts` | es | 20 | 7.04 | 44.13 | 6.27 |
+| Medio | `tts` | es | 150 | 40.00 | 319.58 | 7.99 |
+| Medio | `tts` | en | 150 | 40.00 | 307.47 | 7.69 |
+| Largo | `tts` | es | 300 | 27.16 | 249.71 | 9.19 |
+| Largo | `tts` | en | 300 | 40.00 | 356.80 | 8.92 |
+| Medio | `clone` | es | 150 | 40.00 | 293.10 | 7.33 |
+| Medio | `clone` | en | 150 | 40.00 | 289.29 | 7.23 |
+| Largo | `clone` | es | 300 | 33.20 | 284.87 | 8.58 |
+| Largo | `clone` | en | 300 | 40.00 | 343.68 | 8.59 |
 
-1. Motor browser con SpeechT5/MMS.
-2. Clonacion predefinida por perfiles fijos.
-3. Sin clonacion real por audio de referencia de usuario.
+Promedios:
+1. `tts`: RTF medio `8.01x`
+2. `clone`: RTF medio `7.93x`
 
-Gap a cerrar:
+### 4.2 Serie corta de control
+| Caso | Endpoint | Audio (s) | Tiempo total (s) | RTF |
+|---|---:|---:|---:|---:|
+| Control corto | `tts` | 5.76 | 33.83 | 5.87 |
+| Control corto | `clone` | 5.20 | 30.10 | 5.79 |
 
-1. Integrar flujo `Modo Pro` con deteccion de motor local.
-2. Añadir subida de audio de referencia para `POST /clone`.
-3. Gestionar ciclo completo de modelo (download/load/status).
+Interpretacion:
+1. Estado actual CPU: generar 1 minuto de audio equivale aprox. a `6-9` minutos de computo.
+2. Sin GPU activa, la experiencia de clonacion larga seguira percibiendose lenta aunque el flujo sea estable.
 
-## 4) Arquitectura objetivo
+## 5) Descarga/cache: comparacion estructural
 
-## 4.1 Frontend (Railway)
+### 5.1 Tamano de artefactos relevantes
+1. `onnx-community/chatterbox-multilingual-ONNX/onnx`: **4.98 GB**
+2. `ResembleAI/chatterbox` repo completo: **9.61 GB**
+3. `Xenova/mms-tts-spa/onnx`: **211 MB**
+4. `Xenova/mms-tts-eng/onnx`: **211 MB**
+5. `Xenova/speecht5_tts/onnx`: **3.16 GB**
 
-1. Selector `Modo Rapido / Modo Pro`.
-2. En `Modo Pro`, deteccion de motor local (`GET /health`).
-3. Estados visibles: `no_instalado`, `detenido`, `descargando`, `listo`, `error`.
-4. Fallback robusto a `Modo Rapido` si el motor local no esta activo.
+### 5.2 Tiempo teorico de descarga (solo red)
+| Modelo | 25 Mbps | 50 Mbps | 100 Mbps | 300 Mbps | 600 Mbps |
+|---|---:|---:|---:|---:|---:|
+| Chatterbox multilingual ONNX (4.98 GB) | 28.5 min | 14.3 min | 7.1 min | 2.4 min | 1.2 min |
+| SpeechT5 ONNX (3.16 GB) | 18.1 min | 9.0 min | 4.5 min | 1.5 min | 0.8 min |
+| MMS idioma unico (211 MB) | 1.2 min | 0.6 min | 0.3 min | 0.1 min | ~0.0 min |
 
-## 4.2 Motor local instalable (Windows)
+Lectura practica:
+1. En navegador, los modelos pesados penalizan mucho la primera experiencia.
+2. En ventana local, la cache es mas controlable y persistente, y no depende de politicas del navegador.
 
-1. App con ventana minima (estado, logs, iniciar/parar).
-2. Daemon FastAPI embebido en `127.0.0.1`.
-3. Politica de ciclo de vida: cerrar ventana => detener servidor local.
-4. Cache local de modelo y descarga resumible.
+## 6) Diferencia "WebGPU navegador" vs "ventana local"
 
-## 4.3 API local MVP
+1. Navegador:
+   - Ventaja: cero instalacion.
+   - Riesgo: WebGPU experimental, fallback posible a WASM, limites de memoria/cache de navegador.
+2. Ventana local:
+   - Ventaja: control total del runtime, logs ricos, cache persistente, posibilidad real de CUDA.
+   - Coste: instalacion inicial y mantenimiento de entorno.
+3. Conclusion:
+   - Para modelo ligero, el navegador es suficiente.
+   - Para clonacion/modelo pesado, la ventana local es la via correcta de producto.
 
-Endpoints requeridos:
+## 7) Proyeccion de ganancia al activar CUDA (escenarios)
 
-1. `GET /health`
-2. `GET /version`
-3. `GET /capabilities`
-4. `POST /models/download`
-5. `GET /models/download/status`
-6. `POST /models/load`
-7. `POST /tts`
-8. `POST /clone`
-9. `POST /models/unload`
+Base observada: `RTF ~8x` (CPU actual).
 
-Errores tipados requeridos:
+| Escenario hipotetico | RTF estimado | 1 min de audio | 2 min de audio |
+|---|---:|---:|---:|
+| CPU actual | 8.0x | 480 s | 960 s |
+| GPU con speedup 2x | 4.0x | 240 s | 480 s |
+| GPU con speedup 4x | 2.0x | 120 s | 240 s |
+| GPU con speedup 6x | 1.33x | 80 s | 160 s |
 
-1. `MODEL_NOT_DOWNLOADED`
-2. `MODEL_LOADING`
-3. `GPU_UNAVAILABLE`
-4. `INVALID_REFERENCE_AUDIO`
+Nota:
+1. Esta tabla es proyeccion matematica sobre la baseline medida, no benchmark final CUDA.
+2. La siguiente validacion real sera repetir exactamente los mismos casos tras habilitar `torch` con CUDA.
 
-## 5) Seguridad y privacidad local
+## 8) Decision de producto tras Fase A
 
-1. Bind solo a `127.0.0.1`.
-2. `Authorization: Bearer <token_local>` obligatorio para endpoints privados.
-3. Validacion estricta de `Origin` (dominio Railway + localhost dev).
-4. Sin exposicion de endpoints administrativos fuera de loopback.
-5. Sin envio de audio/texto a servidor para inferencia pro.
+1. Mantener estrategia dual:
+   - `Modo rapido` para entrada inmediata.
+   - `Modo Pro local` para calidad y clonacion seria.
+2. Prioridad tecnica inmediata para retorno:
+   - Habilitar CUDA real en el motor local.
+3. Prioridad UX inmediata para retorno:
+   - Telemetria en vivo de inferencia (`sampling %`) via polling para eliminar sensacion de bloqueo.
 
-## 6) Plan de implementacion
+## 9) Continuacion planificada (estado actualizado)
 
-## Fase A: Documentacion y trazabilidad
+1. Fase B (ejecutada el 22 de marzo de 2026):
+   - `events/poll` + `request_id` + logs/progreso por fase en web y ventana.
+2. Fase C (ejecutada el 22 de marzo de 2026):
+   - Panel avanzado de calidad: `cfg_weight`, `exaggeration`, `temperature`, `seed`.
+3. Mantener "calidad primero":
+   - No introducir control de velocidad artificial en esta fase.
 
-1. Documento principal: `plan_modo_pro_local.md`.
-2. Referencias internas actualizadas desde planes legacy.
+## 10) Supuestos y limites de esta entrega
 
-## Fase B: Frontend Modo Pro
+1. La comparativa pesada web vs ventana se basa en:
+   - Datos reales de backend local medido.
+   - Tamanos oficiales de modelos en repositorios.
+2. No se ejecuto benchmark automatico de navegador WebGPU end-to-end dentro de este entorno de terminal.
+3. La decision sigue siendo valida porque el bloqueo principal detectado es inequivoco: runtime local en CPU-only.
 
-1. Selector de modo.
-2. Cliente API para motor local.
-3. Pantalla de estado del motor.
-4. Flujo download/load/status.
-5. Subida de referencia y llamada a `/clone`.
-6. Fallback a modo browser-only.
+## 11) Fuentes
 
-## Fase C: Motor local Windows
+1. Chatterbox oficial (README/model zoo/tips):
+   https://raw.githubusercontent.com/resemble-ai/chatterbox/master/README.md
+2. Transformers.js (CPU por defecto en browser, WebGPU opcional/experimental):
+   https://raw.githubusercontent.com/huggingface/transformers.js/main/README.md
+3. Chatterbox multilingual ONNX (tamano carpeta y archivos):
+   https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX/tree/main/onnx
+4. ResembleAI/chatterbox (tamano repo y pesos):
+   https://huggingface.co/ResembleAI/chatterbox/tree/main
+5. MMS ES ONNX (tamano):
+   https://huggingface.co/Xenova/mms-tts-spa/tree/main/onnx
+6. MMS EN ONNX (tamano):
+   https://huggingface.co/Xenova/mms-tts-eng/tree/main/onnx
+7. SpeechT5 ONNX (tamano):
+   https://huggingface.co/Xenova/speecht5_tts/tree/main/onnx
 
-1. Daemon FastAPI con endpoints MVP.
-2. Descarga resumible y cache por perfil.
-3. Token local y Origin allowlist.
-4. UI minima visible para confianza y control.
+## 12) Estado de cierre de fase
 
-## 7) Plan de pruebas
+1. Fase A: **completada** (informe listo para retomar).
+2. Fase B: **completada** (telemetria de inferencia y polling en vivo operativos).
+3. Fase C: **completada** (panel avanzado conectado con backend de inferencia).
 
-1. Documentacion: todos los enlaces internos apuntan a `plan_modo_pro_local.md`.
-2. Flujo Pro: instalacion limpia -> deteccion web -> descarga -> load -> primera clonacion.
-3. Seguridad:
-   - sin token => `401`
-   - origin no permitido => `403`
-   - sin acceso fuera de loopback
-4. Confiabilidad UX:
-   - cerrar app local detiene API
-   - reabrir app restaura conexion sin reiniciar web
-5. Fallback:
-   - si falla motor local, la app sigue funcionando en modo rapido
+## 13) Informe de ejecucion Fase B (22 de marzo de 2026)
 
-## 8) Riesgos principales y mitigacion
+1. Backend (`local_engine_windows/daemon.py`):
+   - Se agrego `request_id` opcional en `TTSRequest`.
+   - Se implemento buffer de eventos en memoria con cursor incremental (`events`, `events_cursor`).
+   - Se implementaron helpers: `_normalize_request_id`, `_emit_event`, `_emit_sampling_progress`, `_clear_sampling_progress`, `poll_events`.
+   - Se agrego hook de progreso de sampling sobre `tqdm` de Chatterbox (`_sampling_hook_context`) para emitir porcentaje durante inferencia.
+   - `tts` y `clone` ahora emiten fases: `start`, `initializing_backend`, `preparing_reference` (clone), `sampling`, `serializing_audio`, `completed`, `failed`.
+   - Se agrego endpoint autenticado `GET /events/poll` con `cursor`, `request_id`, `limit`.
+   - `POST /tts` y `POST /clone` aceptan/normalizan `request_id` y devuelven header `X-Request-Id`.
 
-1. Modelo pesado:
-   - mitigar con descarga bajo demanda + perfil unico inicial.
-2. Variabilidad de hardware:
-   - detectar capacidades y emitir diagnostico claro.
-3. Restricciones navegador->localhost:
-   - flujo explicito de permisos y errores de conexion legibles.
+2. Frontend (`src/localEngineClient.ts`):
+   - Se extiende `SpeechRequest` con `request_id`.
+   - Se agregan tipos `EngineEvent` y `EventPollResponse`.
+   - Se implementa `pollEvents(baseUrl, token, { cursor, request_id, limit })`.
+   - `clone` incluye `request_id` en `FormData` cuando existe.
 
-## 9) Fuentes de referencia
+3. Frontend (`src/App.tsx`):
+   - `generatePro` crea `requestId` por solicitud.
+   - Se inicia polling en vivo contra `/events/poll` cada ~450 ms durante TTS/clone.
+   - Se reflejan fases y progreso en consola (`addLog`) y barra de progreso (`setProgress`).
+   - Se hace flush final de eventos al terminar para evitar perder mensajes de cierre.
 
-1. Chatterbox oficial: https://github.com/resemble-ai/chatterbox
-2. Chatterbox Turbo ONNX: https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX
-3. Chatterbox ONNX community: https://huggingface.co/onnx-community/chatterbox-ONNX
-4. Chatterbox multilingual ONNX: https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX
-5. ONNX Runtime Web: https://onnxruntime.ai/docs/get-started/with-javascript/web.html
-6. ONNX Runtime WebGPU: https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html
-7. Transformers.js docs: https://huggingface.co/docs/transformers.js
-8. Chrome Local Network Access: https://developer.chrome.com/blog/local-network-access
+4. Documentacion:
+   - `local_engine_windows/README.md` actualizado con el endpoint `GET /events/poll`.
 
+5. Validaciones ejecutadas:
+   - `python -m py_compile local_engine_windows/daemon.py local_engine_windows/app.py` OK.
+   - `npm run lint` OK.
+   - `npm run build` OK.
+   - Smoke test local con `TestClient` (backend en `mock`) verificando:
+     - correlacion por `request_id`,
+     - fases `start/sampling/completed`,
+     - respuesta con header `X-Request-Id`.
 
-## 10) Cambios implementados en codigo (marzo 2026)
+## 14) Informe de ejecucion Fase C (22 de marzo de 2026)
 
-1. `Modo Rapido` migrado a `@huggingface/transformers` con preferencia WebGPU y fallback CPU/WASM.
-2. Motor local con backend configurable por `LOCAL_ENGINE_INFERENCE_BACKEND` (`auto`, `chatterbox`, `mock`).
-3. Integracion de inferencia real con `chatterbox-tts` cuando dependencias Pro estan disponibles.
-4. Soporte PNA/CORS para HTTPS -> localhost con `Access-Control-Allow-Private-Network`.
-5. Instalacion opcional de dependencias Pro desde `requirements_pro.txt` en `run_local_engine.bat`.
-6. UI local y frontend web muestran estado del backend para evitar falsos positivos de clonacion real.
+1. Backend (`local_engine_windows/daemon.py`):
+   - `POST /tts` y `POST /clone` aceptan parametros opcionales: `cfg_weight`, `exaggeration`, `temperature`, `seed`.
+   - Validacion de rangos y errores tipados (`INVALID_GENERATION_PARAM`) para evitar requests invalidos.
+   - Integracion real con `ChatterboxMultilingualTTS.generate(...)` pasando esos parametros.
+   - Soporte de semilla por request (`seed`) aplicando `torch.manual_seed` de forma acotada al request.
+   - Trazabilidad ampliada: los eventos/logs incluyen los parametros efectivos usados en inferencia.
+
+2. Frontend cliente (`src/localEngineClient.ts`):
+   - `SpeechRequest` y `CloneRequest` extienden payload con los parametros avanzados.
+   - `/clone` envía esos parametros en `FormData` cuando estan presentes.
+
+3. Frontend UI (`src/App.tsx`, `src/index.css`):
+   - Nuevo panel "Ajustes avanzados Pro" con controles para `cfg_weight`, `exaggeration`, `temperature` y `seed`.
+   - Boton para restablecer valores recomendados.
+   - Validacion previa en cliente y logging de parametros activos por request.
+
+4. Resultado de producto:
+   - Fase C queda cerrada: el usuario puede ajustar calidad y reproducibilidad directamente desde la UI Pro sin tocar codigo.

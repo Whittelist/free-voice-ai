@@ -13,6 +13,7 @@ import {
 import {
   type DownloadState,
   type EngineCapabilities,
+  type EngineEvent,
   type EngineStatus,
   getLocalNetworkPermissionState,
   LocalEngineError,
@@ -43,6 +44,14 @@ const PRO_TEXT_EN =
 
 const PRO_ENABLED = import.meta.env.VITE_ENABLE_PRO_MODE !== "false";
 const PRO_MODEL_PROFILE = "pro_multilingual_balanced";
+const PRO_CFG_WEIGHT_RANGE = { min: 0.0, max: 1.5, step: 0.05 } as const;
+const PRO_EXAGGERATION_RANGE = { min: 0.0, max: 2.0, step: 0.05 } as const;
+const PRO_TEMPERATURE_RANGE = { min: 0.1, max: 2.0, step: 0.05 } as const;
+const PRO_ADVANCED_DEFAULTS = {
+  cfgWeight: 0.5,
+  exaggeration: 0.5,
+  temperature: 0.8,
+} as const;
 
 function App() {
   const [mode, setMode] = useState<AppMode>("quick");
@@ -50,6 +59,10 @@ function App() {
   const [quickVoice, setQuickVoice] = useState<QuickVoice>("spa");
   const [proLanguage, setProLanguage] = useState<ProLanguage>("es");
   const [referenceAudio, setReferenceAudio] = useState<File | null>(null);
+  const [proCfgWeight, setProCfgWeight] = useState<number>(PRO_ADVANCED_DEFAULTS.cfgWeight);
+  const [proExaggeration, setProExaggeration] = useState<number>(PRO_ADVANCED_DEFAULTS.exaggeration);
+  const [proTemperature, setProTemperature] = useState<number>(PRO_ADVANCED_DEFAULTS.temperature);
+  const [proSeedInput, setProSeedInput] = useState<string>("");
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -328,6 +341,47 @@ function App() {
     }
   };
 
+  const resetProAdvancedSettings = () => {
+    setProCfgWeight(PRO_ADVANCED_DEFAULTS.cfgWeight);
+    setProExaggeration(PRO_ADVANCED_DEFAULTS.exaggeration);
+    setProTemperature(PRO_ADVANCED_DEFAULTS.temperature);
+    setProSeedInput("");
+    addLog("Modo Pro: ajustes avanzados restablecidos (recomendados).");
+  };
+
+  const buildProAdvancedOptions = () => {
+    const cfgWeight = Number.isFinite(proCfgWeight) ? proCfgWeight : PRO_ADVANCED_DEFAULTS.cfgWeight;
+    const exaggeration = Number.isFinite(proExaggeration) ? proExaggeration : PRO_ADVANCED_DEFAULTS.exaggeration;
+    const temperature = Number.isFinite(proTemperature) ? proTemperature : PRO_ADVANCED_DEFAULTS.temperature;
+
+    if (cfgWeight < PRO_CFG_WEIGHT_RANGE.min || cfgWeight > PRO_CFG_WEIGHT_RANGE.max) {
+      throw new Error(`cfg_weight fuera de rango (${PRO_CFG_WEIGHT_RANGE.min}-${PRO_CFG_WEIGHT_RANGE.max}).`);
+    }
+    if (exaggeration < PRO_EXAGGERATION_RANGE.min || exaggeration > PRO_EXAGGERATION_RANGE.max) {
+      throw new Error(`exaggeration fuera de rango (${PRO_EXAGGERATION_RANGE.min}-${PRO_EXAGGERATION_RANGE.max}).`);
+    }
+    if (temperature < PRO_TEMPERATURE_RANGE.min || temperature > PRO_TEMPERATURE_RANGE.max) {
+      throw new Error(`temperature fuera de rango (${PRO_TEMPERATURE_RANGE.min}-${PRO_TEMPERATURE_RANGE.max}).`);
+    }
+
+    const seedRaw = proSeedInput.trim();
+    let seed: number | undefined;
+    if (seedRaw.length > 0) {
+      const parsed = Number(seedRaw);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2_147_483_647) {
+        throw new Error("seed debe ser un entero entre 0 y 2147483647.");
+      }
+      seed = parsed;
+    }
+
+    return {
+      cfg_weight: cfgWeight,
+      exaggeration,
+      temperature,
+      seed,
+    };
+  };
+
   const handleStartDownload = async () => {
     if (engineStatus === "not_installed") {
       const message =
@@ -417,24 +471,118 @@ function App() {
       }
     }
 
+    const advancedOptions = buildProAdvancedOptions();
     const payload = {
       text,
       language: proLanguage,
       quality_profile: PRO_MODEL_PROFILE,
-    } as const;
+      ...advancedOptions,
+    };
 
-    setProgress({ status: "Generando audio en motor local..." });
+    const requestId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    addLog(`Modo Pro: request_id=${requestId}.`);
+    addLog(
+      `Modo Pro: parametros -> cfg_weight=${advancedOptions.cfg_weight.toFixed(2)}, exaggeration=${advancedOptions.exaggeration.toFixed(2)}, temperature=${advancedOptions.temperature.toFixed(2)}, seed=${advancedOptions.seed ?? "auto"}.`,
+    );
+    setProgress({ status: "Generando audio en motor local...", progress: 1 });
+
+    const phaseLabels: Record<string, string> = {
+      start: "inicio",
+      initializing_backend: "inicializando backend",
+      preparing_reference: "preparando referencia",
+      sampling: "sampling",
+      serializing_audio: "serializando audio",
+      completed: "completado",
+      failed: "fallo",
+    };
+
+    let pollCursor = 0;
+    let pollingActive = true;
+    let pollingErrored = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleInferenceEvents = (events: EngineEvent[]) => {
+      for (const event of events) {
+        const phaseLabel = phaseLabels[event.phase] ?? event.phase;
+        const level = event.level?.toLowerCase?.() === "error" ? "ERROR " : "";
+        addLog(`Modo Pro ${level}[${phaseLabel}]: ${event.message}`);
+        if (event.progress !== undefined) {
+          setProgress({
+            status: `Modo Pro [${phaseLabel}]: ${event.message}`,
+            progress: event.progress,
+          });
+        } else {
+          setProgress({
+            status: `Modo Pro [${phaseLabel}]: ${event.message}`,
+          });
+        }
+      }
+    };
+
+    const pollInferenceEvents = async () => {
+      if (!pollingActive) return;
+      try {
+        const result = await localEngineClient.pollEvents(engineUrl, engineToken, {
+          cursor: pollCursor,
+          request_id: requestId,
+          limit: 200,
+        });
+        pollCursor = result.next_cursor;
+        handleInferenceEvents(result.events);
+      } catch (error) {
+        if (!pollingErrored) {
+          const message = error instanceof Error ? error.message : "error desconocido";
+          addLog(`Modo Pro WARN: no se pudieron leer eventos en vivo (${message}).`);
+          pollingErrored = true;
+        }
+      } finally {
+        if (pollingActive) {
+          pollTimer = setTimeout(() => {
+            void pollInferenceEvents();
+          }, 450);
+        }
+      }
+    };
+
+    const stopPolling = async () => {
+      pollingActive = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      try {
+        const result = await localEngineClient.pollEvents(engineUrl, engineToken, {
+          cursor: pollCursor,
+          request_id: requestId,
+          limit: 200,
+        });
+        pollCursor = result.next_cursor;
+        handleInferenceEvents(result.events);
+      } catch {
+        // Best-effort flush.
+      }
+    };
+
+    void pollInferenceEvents();
 
     let blob: Blob;
-    if (referenceAudio) {
-      addLog("Modo Pro: clonacion real desde audio de referencia.");
-      blob = await localEngineClient.clone(engineUrl, engineToken, {
-        ...payload,
-        reference_audio: referenceAudio,
-      });
-    } else {
-      addLog("Modo Pro: sintesis local sin referencia.");
-      blob = await localEngineClient.synthesize(engineUrl, engineToken, payload);
+    try {
+      if (referenceAudio) {
+        addLog("Modo Pro: clonacion real desde audio de referencia.");
+        blob = await localEngineClient.clone(engineUrl, engineToken, {
+          ...payload,
+          request_id: requestId,
+          reference_audio: referenceAudio,
+        });
+      } else {
+        addLog("Modo Pro: sintesis local sin referencia.");
+        blob = await localEngineClient.synthesize(engineUrl, engineToken, {
+          ...payload,
+          request_id: requestId,
+        });
+      }
+    } finally {
+      await stopPolling();
     }
 
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -617,6 +765,79 @@ function App() {
                   onChange={handleReferenceAudioChange}
                   className="hidden-input"
                 />
+              </div>
+            </div>
+
+            <div className="advanced-panel">
+              <div className="engine-header">
+                <strong>Ajustes avanzados Pro</strong>
+                <button type="button" className="btn-secondary" onClick={resetProAdvancedSettings}>
+                  Restablecer recomendados
+                </button>
+              </div>
+              <div className="controls-row">
+                <div className="control-group">
+                  <label htmlFor="pro-cfg-weight">cfg_weight ({proCfgWeight.toFixed(2)})</label>
+                  <input
+                    id="pro-cfg-weight"
+                    type="number"
+                    min={PRO_CFG_WEIGHT_RANGE.min}
+                    max={PRO_CFG_WEIGHT_RANGE.max}
+                    step={PRO_CFG_WEIGHT_RANGE.step}
+                    value={proCfgWeight}
+                    onChange={(event) => {
+                      const next = event.target.valueAsNumber;
+                      setProCfgWeight(Number.isFinite(next) ? next : PRO_ADVANCED_DEFAULTS.cfgWeight);
+                    }}
+                  />
+                  <small className="help-text">Guiado del texto frente a estilo de voz.</small>
+                </div>
+                <div className="control-group">
+                  <label htmlFor="pro-exaggeration">exaggeration ({proExaggeration.toFixed(2)})</label>
+                  <input
+                    id="pro-exaggeration"
+                    type="number"
+                    min={PRO_EXAGGERATION_RANGE.min}
+                    max={PRO_EXAGGERATION_RANGE.max}
+                    step={PRO_EXAGGERATION_RANGE.step}
+                    value={proExaggeration}
+                    onChange={(event) => {
+                      const next = event.target.valueAsNumber;
+                      setProExaggeration(Number.isFinite(next) ? next : PRO_ADVANCED_DEFAULTS.exaggeration);
+                    }}
+                  />
+                  <small className="help-text">Expresividad y color emocional de la voz.</small>
+                </div>
+                <div className="control-group">
+                  <label htmlFor="pro-temperature">temperature ({proTemperature.toFixed(2)})</label>
+                  <input
+                    id="pro-temperature"
+                    type="number"
+                    min={PRO_TEMPERATURE_RANGE.min}
+                    max={PRO_TEMPERATURE_RANGE.max}
+                    step={PRO_TEMPERATURE_RANGE.step}
+                    value={proTemperature}
+                    onChange={(event) => {
+                      const next = event.target.valueAsNumber;
+                      setProTemperature(Number.isFinite(next) ? next : PRO_ADVANCED_DEFAULTS.temperature);
+                    }}
+                  />
+                  <small className="help-text">Variabilidad del muestreo (mas alto = mas creativo).</small>
+                </div>
+                <div className="control-group">
+                  <label htmlFor="pro-seed">seed (opcional)</label>
+                  <input
+                    id="pro-seed"
+                    type="number"
+                    min={0}
+                    max={2147483647}
+                    step={1}
+                    value={proSeedInput}
+                    onChange={(event) => setProSeedInput(event.target.value)}
+                    placeholder="vacio = aleatorio"
+                  />
+                  <small className="help-text">Fija una semilla para resultados reproducibles.</small>
+                </div>
               </div>
             </div>
           </>

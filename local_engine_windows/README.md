@@ -26,6 +26,7 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
    - `GET /health`
    - `GET /version`
    - `GET /capabilities`
+   - `GET /events/poll`
    - `POST /models/download`
    - `GET /models/download/status`
    - `POST /models/load`
@@ -120,6 +121,17 @@ Si la descarga Pro se queda en `15%` y termina con error tipo `'NoneType' object
 $env:LOCAL_ENGINE_FORCE_SETUP="1"
 .\local_engine_windows\run_local_engine.bat
 ```
+
+## Parametros avanzados de inferencia (Fase C)
+
+`POST /tts` (JSON) y `POST /clone` (form-data) aceptan estos campos opcionales:
+
+1. `cfg_weight` (float, rango `0.0-1.5`, default `0.5`)
+2. `exaggeration` (float, rango `0.0-2.0`, default `0.5`)
+3. `temperature` (float, rango `0.1-2.0`, default `0.8`)
+4. `seed` (int, rango `0-2147483647`, opcional)
+
+Si se envia `seed`, el motor fija la semilla de `torch` para ese request y mejora la reproducibilidad.
 
 ## Token local
 
