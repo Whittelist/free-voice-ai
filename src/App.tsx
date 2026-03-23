@@ -54,7 +54,7 @@ const PRO_ADVANCED_DEFAULTS = {
 } as const;
 const LOCAL_ENGINE_WINDOWS_INSTALLER_URL =
   (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL as string | undefined) ??
-  "https://github.com/Whittelist/free-voice-ai/releases/latest/download/StudioVoiceLocalEngine.exe";
+  "https://github.com/Whittelist/free-voice-ai/blob/main/releases/StudioVoiceLocalEngine.exe?raw=1";
 const PRO_DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   queued: "en cola",
   downloading: "descargando componentes",

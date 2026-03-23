@@ -22,7 +22,7 @@ Variables opcionales:
 
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
-3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL=https://tu-dominio/LocalEngineSetup.exe`
+3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL` (opcional, default: `https://github.com/Whittelist/free-voice-ai/blob/main/releases/StudioVoiceLocalEngine.exe?raw=1`)
 4. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
 
 ## Deploy en Railway
