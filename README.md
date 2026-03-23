@@ -88,6 +88,8 @@ Para minimizar alertas de confianza en descarga, usa firma digital:
 Guia completa de build/SmartScreen/antivirus:
 
 1. [`local_engine_windows/README.md`](./local_engine_windows/README.md)
+2. Binario publicado en repo: [`releases/StudioVoiceLocalEngine.exe`](./releases/StudioVoiceLocalEngine.exe)
+3. Hash publicado: [`releases/StudioVoiceLocalEngine.exe.sha256`](./releases/StudioVoiceLocalEngine.exe.sha256)
 
 Si se interrumpio la creacion del entorno virtual:
 
