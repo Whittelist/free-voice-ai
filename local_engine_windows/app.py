@@ -397,14 +397,24 @@ class LocalEngineWindow:
             self.enqueue_log("ERROR: uvicorn no disponible. Ejecuta run_local_engine.bat.")
             return
 
-        config = uvicorn.Config(
-            self.api_app,
-            host=DEFAULT_HOST,
-            port=DEFAULT_PORT,
-            log_level="warning",
-            access_log=False,
-        )
-        self.server = uvicorn.Server(config)
+        try:
+            # In frozen builds, uvicorn's default LOGGING_CONFIG can fail while
+            # resolving formatter classes (e.g., "default"), so we disable it.
+            config = uvicorn.Config(
+                self.api_app,
+                host=DEFAULT_HOST,
+                port=DEFAULT_PORT,
+                log_level="warning",
+                access_log=False,
+                log_config=None,
+            )
+            self.server = uvicorn.Server(config)
+        except Exception as error:  # noqa: BLE001
+            self.enqueue_log(f"ERROR: no se pudo configurar el servidor: {error}")
+            messagebox.showerror("Studio Voice Local Engine", f"No se pudo iniciar el servidor local:\n{error}")
+            self._set_stopped_state()
+            return
+
         self.server_thread = threading.Thread(target=self._server_run, daemon=True)
         self.server_thread.start()
         self.is_running = True

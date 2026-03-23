@@ -97,6 +97,35 @@ Consejo practico:
 1. Para primeras versiones publicas, `one-folder` suele dar menos friccion operativa para soporte.
 2. Usa `-OneFile` solo cuando ya tengas pipeline de firma y reputacion estable.
 
+## Si Windows bloquea con "Control Inteligente de Aplicaciones"
+
+Mensaje tipico:
+
+1. "se bloqueo porque no se puede confirmar quien lo escribio y no es una aplicacion con la que estemos familiarizados"
+
+Causa:
+
+1. Smart App Control (`Windows 11`) esta en modo `On`.
+2. El `.exe` no esta firmado, o la firma no es valida/confiable para Microsoft.
+
+Comprobacion rapida:
+
+```powershell
+Get-MpComputerStatus | Select-Object SmartAppControlState
+Get-AuthenticodeSignature .\dist\StudioVoiceLocalEngine\StudioVoiceLocalEngine.exe | Format-List Status,StatusMessage,SignerCertificate
+```
+
+Solucion para distribucion real:
+
+1. Firmar el ejecutable con certificado de firma de codigo **RSA** emitido por CA confiable.
+2. Incluir timestamp RFC3161.
+3. Publicar siempre con el mismo publisher para construir reputacion.
+
+Solucion temporal para desarrollo local:
+
+1. Desactivar Smart App Control desde `Seguridad de Windows > Control de aplicaciones y navegador > Configuracion de Smart App Control`.
+2. Nota: volver a activarlo puede requerir reset/reinstalacion de Windows.
+
 Requisito recomendado para Modo Pro real:
 
 1. Python `3.11` o `3.12`.
@@ -178,6 +207,19 @@ Si la descarga Pro se queda en `15%` y termina con error tipo `'NoneType' object
 $env:LOCAL_ENGINE_FORCE_SETUP="1"
 .\local_engine_windows\run_local_engine.bat
 ```
+
+Si al abrir el `.exe` aparece `Unable to configure formatter 'default'`:
+
+1. Es un fallo de configuracion de logging de `uvicorn` en algunos binarios empaquetados.
+2. Solucion: recompilar con el `build_windows.ps1` actualizado (ya fuerza `log_config=None` al arrancar servidor local).
+3. Borra builds viejos y genera uno nuevo:
+
+```powershell
+Remove-Item -Recurse -Force .\local_engine_windows\build,.\local_engine_windows\dist
+.\local_engine_windows\build_windows.ps1 -SkipSign -SkipDefenderScan
+```
+
+4. Verifica que ejecutas el nuevo binario y no una copia antigua en `Downloads`.
 
 ## Parametros avanzados de inferencia (Fase C)
 

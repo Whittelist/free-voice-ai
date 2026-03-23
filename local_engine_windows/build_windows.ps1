@@ -167,7 +167,8 @@ $didSign = $false
 
 if (-not $SkipSign) {
   if ([string]::IsNullOrWhiteSpace($PfxPath) -and [string]::IsNullOrWhiteSpace($CertThumbprint)) {
-    Write-Warning "Build sin firma digital. Para evitar alertas de SmartScreen, firma el .exe con Authenticode."
+    Write-Warning "Build sin firma digital. Con Smart App Control en 'On' este .exe se bloqueara."
+    Write-Warning "Para release publica firma con Authenticode + timestamp (certificado RSA de CA confiable)."
   } else {
     $signToolPath = Get-SignToolPath
     if (-not $signToolPath) {
@@ -201,6 +202,14 @@ if (-not $SkipSign) {
     $signArgs += $exePath
     & $signToolPath @signArgs
     & $signToolPath verify /pa /v $exePath
+    $signature = Get-AuthenticodeSignature -FilePath $exePath
+    if ($signature.Status -ne "Valid") {
+      throw "La firma no quedo valida. Status: $($signature.Status) - $($signature.StatusMessage)"
+    }
+    $pubKeyAlg = $signature.SignerCertificate.PublicKey.Oid.FriendlyName
+    if ([string]::IsNullOrWhiteSpace($pubKeyAlg) -or $pubKeyAlg -notmatch "RSA") {
+      Write-Warning "Smart App Control requiere firma con certificado RSA. Algoritmo detectado: $pubKeyAlg"
+    }
     $didSign = $true
   }
 }
