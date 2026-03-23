@@ -221,6 +221,13 @@ Remove-Item -Recurse -Force .\local_engine_windows\build,.\local_engine_windows\
 
 4. Verifica que ejecutas el nuevo binario y no una copia antigua en `Downloads`.
 
+Si en Modo Pro aparece `status 500` al validar backend real y el detalle menciona `os error 1455` o `archivo de paginacion`:
+
+1. Es falta de memoria virtual de Windows (pagefile) para cargar el modelo.
+2. Cierra apps pesadas (editores, navegador con muchas pestañas, juegos, etc.) y reinicia.
+3. Aumenta la memoria virtual en `Configuracion avanzada del sistema > Rendimiento > Memoria virtual`.
+4. Recomendado para este motor: al menos `65536 MB` (64 GB) si tienes espacio en disco.
+
 ## Parametros avanzados de inferencia (Fase C)
 
 `POST /tts` (JSON) y `POST /clone` (form-data) aceptan estos campos opcionales:

@@ -95,6 +95,19 @@ function App() {
     setLogs((prev) => [...prev, `[${timestamp}] ${message}`]);
   }, []);
 
+  const formatUiError = useCallback((error: unknown, fallback: string): string => {
+    if (error instanceof LocalEngineError) {
+      if (error.code === "INSUFFICIENT_VIRTUAL_MEMORY") {
+        return `${error.message} (Sugerencia: cierra apps pesadas y reinicia Windows antes de reintentar).`;
+      }
+      return error.message;
+    }
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  }, []);
+
   const setDefaultQuickText = useCallback((voice: QuickVoice) => {
     if (voice === "spa") setText(QUICK_TEXT_ES);
     else if (voice === "eng") setText(QUICK_TEXT_EN);
@@ -507,7 +520,7 @@ function App() {
       await localEngineClient.downloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
       await refreshEngineStatus(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error iniciando descarga.";
+      const message = formatUiError(error, "Error iniciando descarga.");
       addLog(`Modo Pro ERROR: ${message}`);
       setEngineStatus("error");
       setEngineNote(message);
@@ -523,7 +536,7 @@ function App() {
       setProgress(null);
       addLog("Modo Pro: modelo cargado.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error cargando modelo.";
+      const message = formatUiError(error, "Error cargando modelo.");
       addLog(`Modo Pro ERROR: ${message}`);
       setProgress(null);
       setEngineStatus("error");
@@ -537,7 +550,7 @@ function App() {
       await localEngineClient.unloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
       await refreshEngineStatus(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error descargando modelo.";
+      const message = formatUiError(error, "Error descargando modelo.");
       addLog(`Modo Pro ERROR: ${message}`);
       setEngineStatus("error");
       setEngineNote(message);
@@ -618,7 +631,7 @@ function App() {
         handleInferenceEvents(result.events);
       } catch (error) {
         if (!pollingErrored) {
-          const message = error instanceof Error ? error.message : "error desconocido";
+          const message = formatUiError(error, "error desconocido");
           addLog(`Modo Pro WARN: no se pudieron leer eventos en vivo (${message}).`);
           pollingErrored = true;
         }
@@ -681,7 +694,7 @@ function App() {
       addLog("Modo Pro: preparando flujo automatico (motor + modelo)...");
       await ensureProModelReady(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error preparando Modo Pro.";
+      const message = formatUiError(error, "Error preparando Modo Pro.");
       addLog(`Modo Pro ERROR: ${message}`);
       setEngineStatus("error");
       setEngineNote(message);
@@ -703,7 +716,7 @@ function App() {
         setIsProcessing(false);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Error durante la generacion.";
+      const message = formatUiError(error, "Error durante la generacion.");
       addLog(`ERROR: ${message}`);
       setProgress({ status: message });
       setIsProcessing(false);

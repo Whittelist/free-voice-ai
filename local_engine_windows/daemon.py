@@ -329,7 +329,30 @@ class EngineRuntime:
                 raise
             except Exception as error:  # noqa: BLE001
                 self.real_backend_error = str(error)
-                raise EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", str(error)) from error
+                raise self._map_backend_init_exception(error) from error
+
+    @staticmethod
+    def _map_backend_init_exception(error: Exception) -> EngineHTTPError:
+        detail = str(error)
+        normalized = detail.lower()
+        winerror = getattr(error, "winerror", None)
+        if (
+            winerror == 1455
+            or "os error 1455" in normalized
+            or "archivo de paginaci" in normalized
+            or "paging file" in normalized
+        ):
+            return EngineHTTPError(
+                507,
+                "INSUFFICIENT_VIRTUAL_MEMORY",
+                (
+                    "Windows no tiene memoria virtual suficiente para cargar el modelo Pro "
+                    "(pagefile insuficiente). Cierra apps pesadas, reinicia el PC y aumenta "
+                    "la memoria virtual en Configuracion avanzada del sistema > Rendimiento "
+                    "> Memoria virtual."
+                ),
+            )
+        return EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", detail)
 
     def _release_real_backend_model(self) -> None:
         with self.backend_lock:

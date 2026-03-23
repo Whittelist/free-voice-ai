@@ -69,6 +69,7 @@ type ErrorBody = {
     code?: string;
     message?: string;
   };
+  detail?: string;
 };
 
 export class LocalEngineError extends Error {
@@ -210,6 +211,11 @@ const requestJson = async <T>(
       "error" in parsed &&
       parsed.error?.message
         ? parsed.error.message
+        : typeof parsed === "object" &&
+            parsed &&
+            "detail" in parsed &&
+            typeof parsed.detail === "string"
+          ? parsed.detail
         : `Request failed with status ${response.status}`;
     const code =
       typeof parsed === "object" &&
@@ -253,6 +259,11 @@ const requestBlob = async (
       "error" in parsed &&
       parsed.error?.message
         ? parsed.error.message
+        : typeof parsed === "object" &&
+            parsed &&
+            "detail" in parsed &&
+            typeof parsed.detail === "string"
+          ? parsed.detail
         : `Request failed with status ${response.status}`;
     const code =
       typeof parsed === "object" &&
