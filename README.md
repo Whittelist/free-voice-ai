@@ -73,6 +73,22 @@ o desde npm (Windows):
 npm run local-engine
 ```
 
+Build de release (`.exe`) para distribucion:
+
+```powershell
+.\local_engine_windows\build_windows.ps1
+```
+
+Para minimizar alertas de confianza en descarga, usa firma digital:
+
+```powershell
+.\local_engine_windows\build_windows.ps1 -OneFile -PfxPath "C:\certs\studio_voice.pfx" -PfxPassword "<PASSWORD>"
+```
+
+Guia completa de build/SmartScreen/antivirus:
+
+1. [`local_engine_windows/README.md`](./local_engine_windows/README.md)
+
 Si se interrumpio la creacion del entorno virtual:
 
 ```powershell

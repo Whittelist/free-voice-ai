@@ -40,6 +40,63 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
 .\local_engine_windows\run_local_engine.bat
 ```
 
+## Build de release para `.exe` (Windows)
+
+Desde `local_engine_windows`:
+
+```powershell
+.\build_windows.ps1
+```
+
+Opciones principales del script:
+
+1. `-OneFile`: genera un solo `.exe` en `dist/StudioVoiceLocalEngine-OneFile.exe`.
+2. `-PfxPath` + `-PfxPassword`: firma con certificado `.pfx`.
+3. `-CertThumbprint`: firma con certificado de `Cert:\CurrentUser\My` (default).
+4. `-MachineStore`: al usar `-CertThumbprint`, cambia a `Cert:\LocalMachine\My`.
+5. `-SkipSign`: compila sin firma (solo para pruebas internas).
+6. `-SkipDefenderScan`: omite escaneo local con Microsoft Defender.
+7. `-ProductVersion`: sobreescribe la version visible del ejecutable.
+
+Ejemplo (firmado con PFX + one-file):
+
+```powershell
+.\build_windows.ps1 -OneFile -PfxPath "C:\certs\studio_voice.pfx" -PfxPassword "<PASSWORD>"
+```
+
+Ejemplo (firmado por huella en store local):
+
+```powershell
+.\build_windows.ps1 -CertThumbprint "<THUMBPRINT_SHA1>"
+```
+
+Si el certificado esta en `LocalMachine\My`:
+
+```powershell
+.\build_windows.ps1 -CertThumbprint "<THUMBPRINT_SHA1>" -MachineStore
+```
+
+Cada build genera ademas:
+
+1. Hash SHA-256 (`.sha256`) junto al ejecutable.
+2. Manifest de release en `dist/*-release.json`.
+
+## Reducir alertas de SmartScreen/antivirus
+
+No existe una forma de eliminar al 100% los avisos de reputacion en la primera distribucion, pero este flujo reduce mucho la friccion:
+
+1. Firma siempre cada release con el mismo certificado (Authenticode + timestamp).
+2. Publica desde un dominio HTTPS estable y con historial.
+3. Mantener nombre de archivo/producto/version coherentes entre releases.
+4. Publica hash SHA-256 y changelog en cada version.
+5. Si hay falso positivo, enviar el binario a Microsoft Security Intelligence como `Software developer`.
+6. Si hay warning por URL en Safe Browsing, reportar revision de URL/listado.
+
+Consejo practico:
+
+1. Para primeras versiones publicas, `one-folder` suele dar menos friccion operativa para soporte.
+2. Usa `-OneFile` solo cuando ya tengas pipeline de firma y reputacion estable.
+
 Requisito recomendado para Modo Pro real:
 
 1. Python `3.11` o `3.12`.
