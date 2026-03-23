@@ -197,14 +197,19 @@ function App() {
         setDownloadState(download);
 
         if (capabilities.inference_backend === "mock") {
-          setEngineStatus("error");
-          const detail = capabilities.real_backend_error
-            ? ` Motivo: ${capabilities.real_backend_error}`
-            : "";
-          setEngineNote(
-            `Motor local detectado, pero en modo mock (sin clonacion real). Reejecuta .\\local_engine_windows\\run_local_engine.bat para instalar dependencias Pro, o fija LOCAL_ENGINE_INFERENCE_BACKEND=chatterbox.${detail}`,
-          );
-          if (verbose) addLog("Modo Pro: backend en mock (sin clonacion real).");
+          const detail = capabilities.real_backend_error ? ` ${capabilities.real_backend_error}` : "";
+          if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
+            setEngineStatus("ready");
+            setEngineNote(
+              `Motor local listo en modo compatible. Puedes generar voz, pero la clonacion real no estara disponible.${detail}`,
+            );
+          } else {
+            setEngineStatus("stopped");
+            setEngineNote(
+              `Motor local en modo compatible. Pulsa 'Preparar modo Pro' para continuar con generacion basica.${detail}`,
+            );
+          }
+          if (verbose) addLog("Modo Pro: backend en modo compatible (sin clonacion real).");
           lastLoggedDownloadStageRef.current = null;
           return;
         }
@@ -298,19 +303,13 @@ function App() {
         let capabilities = await localEngineClient.capabilities(engineUrl, engineToken);
         setEngineCapabilities(capabilities);
 
-        if (capabilities.inference_backend === "mock") {
-          const detail = capabilities.real_backend_error
-            ? ` Motivo: ${capabilities.real_backend_error}`
-            : "";
-          const message = `El motor local esta en modo mock y no permite clonacion real.${detail}`;
-          setEngineStatus("error");
-          setEngineNote(message);
-          throw new Error(message);
-        }
-
         if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
           setEngineStatus("ready");
-          setEngineNote("Motor local listo para sintesis y clonacion.");
+          if (capabilities.inference_backend === "mock") {
+            setEngineNote("Motor local listo en modo compatible (sin clonacion real).");
+          } else {
+            setEngineNote("Motor local listo para sintesis y clonacion.");
+          }
           return;
         }
 
@@ -365,8 +364,13 @@ function App() {
         capabilities = await localEngineClient.capabilities(engineUrl, engineToken);
         setEngineCapabilities(capabilities);
         setEngineStatus("ready");
-        setEngineNote("Motor local listo para sintesis y clonacion.");
-        addLog("Modo Pro: modelo cargado y listo.");
+        if (capabilities.inference_backend === "mock") {
+          setEngineNote("Motor local listo en modo compatible. La clonacion real no estara disponible.");
+          addLog("Modo Pro: cargado en modo compatible por recursos del sistema.");
+        } else {
+          setEngineNote("Motor local listo para sintesis y clonacion.");
+          addLog("Modo Pro: modelo cargado y listo.");
+        }
       } finally {
         setIsPreparingPro(false);
         setProgress(null);
@@ -664,8 +668,13 @@ function App() {
 
     let blob: Blob;
     try {
+      const compatibleMode = engineCapabilities?.inference_backend === "mock";
       if (referenceAudio) {
-        addLog("Modo Pro: clonacion real desde audio de referencia.");
+        if (compatibleMode) {
+          addLog("Modo Pro: referencia usada en modo compatible (sin clonacion real).");
+        } else {
+          addLog("Modo Pro: clonacion real desde audio de referencia.");
+        }
         blob = await localEngineClient.clone(engineUrl, engineToken, {
           ...payload,
           request_id: requestId,

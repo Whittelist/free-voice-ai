@@ -354,6 +354,21 @@ class EngineRuntime:
             )
         return EngineHTTPError(500, "REAL_BACKEND_INIT_FAILED", detail)
 
+    def _fallback_to_mock_runtime(self, error: EngineHTTPError) -> bool:
+        if self.backend_mode != "auto":
+            return False
+        if error.code not in {"INSUFFICIENT_VIRTUAL_MEMORY", "REAL_BACKEND_INIT_FAILED"}:
+            return False
+        self.real_backend_available = False
+        self.real_backend_error = error.message
+        self.inference_backend = "mock"
+        self._real_model = None
+        self.log(
+            "WARN: recursos insuficientes para backend real. "
+            "Se activa modo compatible (mock) para mantener el motor funcional."
+        )
+        return True
+
     def _release_real_backend_model(self) -> None:
         with self.backend_lock:
             self._real_model = None
@@ -962,8 +977,12 @@ class EngineRuntime:
         try:
             self.log(f"Cargando perfil {profile} en memoria...")
             if self.inference_backend == "chatterbox":
-                self._ensure_real_backend_model()
-                self.real_backend_cache_ready = True
+                try:
+                    self._ensure_real_backend_model()
+                    self.real_backend_cache_ready = True
+                except EngineHTTPError as error:
+                    if not self._fallback_to_mock_runtime(error):
+                        raise
             else:
                 time.sleep(1.0)
 
@@ -1088,7 +1107,20 @@ class EngineRuntime:
         self._emit_event(req_id, "start", f"TTS iniciado ({_language}) [{options_label}].", progress=1.0)
         if self.inference_backend == "chatterbox":
             self._emit_event(req_id, "initializing_backend", "Validando backend real...", progress=3.0)
-            self._ensure_real_backend_model()
+            try:
+                self._ensure_real_backend_model()
+            except EngineHTTPError as error:
+                if self._fallback_to_mock_runtime(error):
+                    self._emit_event(
+                        req_id,
+                        "initializing_backend",
+                        "Recursos del sistema insuficientes para modo Pro real. Continuando en modo compatible.",
+                        progress=4.0,
+                    )
+                else:
+                    self._emit_event(req_id, "failed", f"Fallo de inferencia TTS: {error.message}", level="error", progress=100.0)
+                    raise
+        if self.inference_backend == "chatterbox":
             try:
                 assert self._real_model is not None
                 sample_rate = int(getattr(self._real_model, "sr", 24000))
@@ -1149,7 +1181,26 @@ class EngineRuntime:
         self._emit_event(req_id, "start", f"Clone iniciado ({_language}) [{options_label}].", progress=1.0)
         if self.inference_backend == "chatterbox":
             self._emit_event(req_id, "initializing_backend", "Validando backend real...", progress=3.0)
-            self._ensure_real_backend_model()
+            try:
+                self._ensure_real_backend_model()
+            except EngineHTTPError as error:
+                if self._fallback_to_mock_runtime(error):
+                    self._emit_event(
+                        req_id,
+                        "initializing_backend",
+                        "Recursos del sistema insuficientes para clonacion real. Continuando en modo compatible.",
+                        progress=4.0,
+                    )
+                else:
+                    self._emit_event(
+                        req_id,
+                        "failed",
+                        f"Fallo de inferencia de clonacion: {error.message}",
+                        level="error",
+                        progress=100.0,
+                    )
+                    raise
+        if self.inference_backend == "chatterbox":
             self._emit_event(req_id, "preparing_reference", "Preparando audio de referencia...", progress=4.0)
             reference_path = self._prepare_reference_audio_path(reference_audio, reference_extension)
             try:

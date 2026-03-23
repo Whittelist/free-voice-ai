@@ -228,6 +228,11 @@ Si en Modo Pro aparece `status 500` al validar backend real y el detalle mencion
 3. Aumenta la memoria virtual en `Configuracion avanzada del sistema > Rendimiento > Memoria virtual`.
 4. Recomendado para este motor: al menos `65536 MB` (64 GB) si tienes espacio en disco.
 
+Comportamiento actual:
+
+1. Si faltan recursos para backend real, el motor cambia automaticamente a `modo compatible (mock)`.
+2. En modo compatible la app sigue funcionando (genera audio), pero la clonacion real no estara disponible.
+
 ## Parametros avanzados de inferencia (Fase C)
 
 `POST /tts` (JSON) y `POST /clone` (form-data) aceptan estos campos opcionales:
