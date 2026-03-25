@@ -84,6 +84,7 @@ export class LocalEngineError extends Error {
 }
 
 const DEFAULT_URL = "http://127.0.0.1:57641";
+export const MAX_REFERENCE_AUDIO_BYTES = 20 * 1024 * 1024;
 
 const asBaseUrl = (baseUrl?: string): string => {
   let raw = (baseUrl ?? DEFAULT_URL).trim();

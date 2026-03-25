@@ -52,6 +52,8 @@ DOWNLOAD_SLEEP_SECONDS = 0.015
 EVENT_BUFFER_LIMIT = int(os.getenv("LOCAL_ENGINE_EVENT_BUFFER_LIMIT", "6000"))
 EVENT_POLL_MAX_LIMIT = int(os.getenv("LOCAL_ENGINE_EVENT_POLL_MAX_LIMIT", "500"))
 SAMPLING_LOG_STEP_PERCENT = float(os.getenv("LOCAL_ENGINE_SAMPLING_LOG_STEP_PERCENT", "2.0"))
+MAX_REFERENCE_AUDIO_BYTES = int(os.getenv("LOCAL_ENGINE_MAX_REFERENCE_AUDIO_BYTES", str(20 * 1024 * 1024)))
+MAX_REFERENCE_AUDIO_SECONDS = float(os.getenv("LOCAL_ENGINE_MAX_REFERENCE_AUDIO_SECONDS", "5.0"))
 DEFAULT_CFG_WEIGHT = float(os.getenv("LOCAL_ENGINE_DEFAULT_CFG_WEIGHT", "0.5"))
 DEFAULT_EXAGGERATION = float(os.getenv("LOCAL_ENGINE_DEFAULT_EXAGGERATION", "0.5"))
 DEFAULT_TEMPERATURE = float(os.getenv("LOCAL_ENGINE_DEFAULT_TEMPERATURE", "0.8"))
@@ -158,6 +160,30 @@ class TTSRequest(BaseModel):
     exaggeration: float | None = Field(default=None)
     temperature: float | None = Field(default=None)
     seed: int | None = Field(default=None)
+
+
+async def _read_upload_bytes_limited(upload: UploadFile, *, max_bytes: int) -> bytes:
+    data = bytearray()
+    try:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > max_bytes:
+                max_mb = max(1, math.ceil(max_bytes / (1024 * 1024)))
+                raise EngineHTTPError(
+                    413,
+                    "REFERENCE_AUDIO_TOO_LARGE",
+                    (
+                        f"El audio de referencia supera el limite de {max_mb} MB. "
+                        "Usa un clip corto de 5-30 segundos."
+                    ),
+                )
+        return bytes(data)
+    finally:
+        with contextlib.suppress(Exception):
+            await upload.close()
 
 
 class EngineRuntime:
@@ -416,18 +442,34 @@ class EngineRuntime:
         raw_path = Path(raw_file)
         raw_path.write_bytes(reference_audio)
 
-        if normalized_ext in {".wav", ".x-wav"}:
-            return raw_path
-
         try:
             import librosa
             import soundfile as sf
 
-            audio, _ = librosa.load(str(raw_path), sr=24000, mono=True)
+            audio, sample_rate = librosa.load(str(raw_path), sr=24000, mono=True)
+            if audio.size == 0:
+                raise EngineHTTPError(400, "INVALID_REFERENCE_AUDIO", "El audio de referencia esta vacio.")
+
+            trimmed_audio, _ = librosa.effects.trim(audio, top_db=30)
+            if trimmed_audio.size == 0:
+                raise EngineHTTPError(
+                    400,
+                    "INVALID_REFERENCE_AUDIO",
+                    "El audio de referencia no contiene voz utilizable.",
+                )
+            audio = trimmed_audio
+
+            max_samples = max(1, int(sample_rate * MAX_REFERENCE_AUDIO_SECONDS))
+            if audio.shape[0] > max_samples:
+                audio = audio[:max_samples]
+
             wav_path = raw_path.with_suffix(".wav")
-            sf.write(str(wav_path), audio, 24000)
+            sf.write(str(wav_path), audio, sample_rate)
             raw_path.unlink(missing_ok=True)
             return wav_path
+        except EngineHTTPError:
+            raw_path.unlink(missing_ok=True)
+            raise
         except Exception as error:  # noqa: BLE001
             raw_path.unlink(missing_ok=True)
             raise EngineHTTPError(
@@ -1350,7 +1392,7 @@ def create_app(runtime: EngineRuntime) -> FastAPI:
         if extension not in {".wav", ".mp3", ".mpeg", ".x-wav"}:
             raise EngineHTTPError(400, "INVALID_REFERENCE_AUDIO", "Formato no soportado. Usa WAV o MP3.")
 
-        payload = await reference_audio.read()
+        payload = await _read_upload_bytes_limited(reference_audio, max_bytes=MAX_REFERENCE_AUDIO_BYTES)
         started_at = time.perf_counter()
         wav_bytes = runtime.clone(
             text,

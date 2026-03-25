@@ -19,6 +19,7 @@ import {
   LocalEngineError,
   getDefaultLocalEngineUrl,
   localEngineClient,
+  MAX_REFERENCE_AUDIO_BYTES,
 } from "./localEngineClient";
 import "./index.css";
 
@@ -44,6 +45,7 @@ const PRO_TEXT_EN =
 
 const PRO_ENABLED = import.meta.env.VITE_ENABLE_PRO_MODE !== "false";
 const PRO_MODEL_PROFILE = "pro_multilingual_balanced";
+const MAX_REFERENCE_AUDIO_MB = Math.max(1, Math.round(MAX_REFERENCE_AUDIO_BYTES / (1024 * 1024)));
 const PRO_CFG_WEIGHT_RANGE = { min: 0.0, max: 1.5, step: 0.05 } as const;
 const PRO_EXAGGERATION_RANGE = { min: 0.0, max: 2.0, step: 0.05 } as const;
 const PRO_TEMPERATURE_RANGE = { min: 0.1, max: 2.0, step: 0.05 } as const;
@@ -92,7 +94,10 @@ function App() {
 
   const addLog = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev, `[${timestamp}] ${message}`]);
+    setLogs((prev) => {
+      const next = [...prev, `[${timestamp}] ${message}`];
+      return next.length > 250 ? next.slice(-250) : next;
+    });
   }, []);
 
   const formatUiError = useCallback((error: unknown, fallback: string): string => {
@@ -570,6 +575,12 @@ function App() {
   };
 
   const generatePro = async () => {
+    if (referenceAudio && referenceAudio.size > MAX_REFERENCE_AUDIO_BYTES) {
+      throw new Error(
+        `El audio de referencia supera el limite de ${MAX_REFERENCE_AUDIO_MB} MB. Usa un clip corto de unos 5 segundos.`,
+      );
+    }
+
     await ensureProModelReady(false);
 
     const advancedOptions = buildProAdvancedOptions();
@@ -931,6 +942,10 @@ function App() {
                   onChange={handleReferenceAudioChange}
                   className="hidden-input"
                 />
+                <small className="help-text">
+                  Recomendado: un clip limpio de unos 5 segundos. El motor recorta y normaliza la referencia
+                  antes de clonar. Límite duro: {MAX_REFERENCE_AUDIO_MB} MB.
+                </small>
               </div>
             </div>
 

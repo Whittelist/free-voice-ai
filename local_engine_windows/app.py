@@ -339,7 +339,7 @@ class LocalEngineWindow:
                 if self.root.winfo_exists():
                     self.root.after(200, self.flush_logs)
             except tk.TclError:
-                return
+                pass
 
     def copy_token(self) -> None:
         self._copy_to_clipboard(self.runtime.api_token)

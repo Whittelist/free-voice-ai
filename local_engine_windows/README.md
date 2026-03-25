@@ -34,6 +34,13 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
    - `POST /tts`
    - `POST /clone`
 
+Recomendacion para clonacion:
+
+1. Chatterbox Turbo indica en su pagina oficial que `5 seconds of reference audio` son suficientes.
+2. El repo oficial usa ejemplos en `.wav` y muestras de referencia de `5-10` segundos.
+3. Este motor normaliza el audio de referencia, quita silencio y usa solo hasta `5` segundos limpios.
+4. El motor rechaza audio de referencia demasiado grande para evitar bloqueos por memoria.
+
 ## Quickstart (desarrollo)
 
 ```powershell
@@ -269,7 +276,13 @@ Si se envia `seed`, el motor fija la semilla de `torch` para ese request y mejor
    - `auto` (default)
    - `chatterbox`
    - `mock`
-7. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
+7. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_BYTES`:
+   - Limite duro para el audio de referencia en `POST /clone`.
+   - Default: `20971520` (`20 MB`).
+8. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_SECONDS`:
+   - Duracion maxima del fragmento limpio que usa el motor tras normalizar la referencia.
+   - Default: `5.0`.
+9. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
    - `1` para saltar instalacion de dependencias Pro en el `.bat`.
 
 ## Notas
