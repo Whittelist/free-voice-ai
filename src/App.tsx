@@ -131,6 +131,7 @@ function App() {
   const [engineCapabilities, setEngineCapabilities] = useState<EngineCapabilities | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
   const [isPreparingPro, setIsPreparingPro] = useState(false);
+  const [isInstallerDownloadStarting, setIsInstallerDownloadStarting] = useState(false);
   const lastLoggedDownloadErrorRef = useRef<string | null>(null);
   const lastLoggedDownloadStageRef = useRef<string | null>(null);
 
@@ -860,6 +861,21 @@ function App() {
       ? "Modo rapido: ejecucion 100% en navegador."
       : "Modo Pro: daemon local para acercarse a la ruta oficial de Chatterbox.";
 
+  const openExternalUrl = useCallback((url: string) => {
+    if (typeof window === "undefined") return;
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      window.location.href = url;
+    }
+  }, []);
+
+  const handleInstallerDownloadClick = useCallback(() => {
+    if (isInstallerDownloadStarting) return;
+    setIsInstallerDownloadStarting(true);
+    openExternalUrl(LOCAL_ENGINE_WINDOWS_INSTALLER_URL);
+    window.setTimeout(() => setIsInstallerDownloadStarting(false), 3500);
+  }, [isInstallerDownloadStarting, openExternalUrl]);
+
   return (
     <div className="app-container">
       <header>
@@ -937,23 +953,28 @@ function App() {
                   ejecutar la parte pesada fuera del navegador. Si no hay GPU real, no esperes paridad completa con la
                   demo oficial.
                 </p>
-                <a
+                <button
+                  type="button"
                   className="btn-secondary"
-                  href={LOCAL_ENGINE_WINDOWS_INSTALLER_URL}
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={handleInstallerDownloadClick}
+                  disabled={isInstallerDownloadStarting}
                 >
-                  <Download size={16} /> Descargar ZIP launcher Windows
-                </a>
-                <a className="btn-secondary" href={LOCAL_ENGINE_WINDOWS_RELEASES_URL} target="_blank" rel="noreferrer">
-                  <Download size={16} /> Si da Not Found, abrir Releases
-                </a>
+                  <Download size={16} />{" "}
+                  {isInstallerDownloadStarting ? "Abriendo descarga..." : "Descargar ZIP launcher Windows"}
+                </button>
                 <a className="btn-secondary" href={SUPPORT_PAGE_URL}>
                   <AlertTriangle size={16} /> Reportar bug / soporte
                 </a>
                 <small className="help-text">
                   Pasos: 1) Lanza el daemon local. 2) Copia el token de la ventana local. 3) En Chrome/Edge concede
                   acceso a red local si el sitio esta en HTTPS. 4) Pulsa <code>Preparar modo Pro</code>.
+                </small>
+                <small className="help-text">
+                  Si el enlace directo falla con <code>Not Found</code>, abre{" "}
+                  <a href={LOCAL_ENGINE_WINDOWS_RELEASES_URL} target="_blank" rel="noreferrer">
+                    Releases
+                  </a>{" "}
+                  y descarga el ZIP manualmente.
                 </small>
               </div>
 
