@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import tkinter as tk
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 from tkinter import messagebox, scrolledtext, ttk
 
@@ -35,6 +38,10 @@ class LocalEngineWindow:
         self.root.configure(bg=self.colors["bg"])
 
         self.log_queue: queue.Queue[str] = queue.Queue()
+        self.data_dir = Path(os.getenv("LOCAL_ENGINE_DATA_DIR", Path.home() / ".studio_voice_local"))
+        self.logs_dir = self.data_dir / "logs"
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file_path = self.logs_dir / f"launcher-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.log"
         self.runtime = EngineRuntime(logger=self.enqueue_log)
         self.api_app = create_app(self.runtime)
 
@@ -55,11 +62,14 @@ class LocalEngineWindow:
         self.root.after(150, self.flush_logs)
 
     def _resolve_backend_text(self) -> str:
-        backend_text = self.runtime.inference_backend
+        runtime_class = getattr(self.runtime, "_runtime_class", lambda: self.runtime.inference_backend)()
+        quality_tier = getattr(self.runtime, "_quality_tier", lambda: "unknown")()
+        backend_text = f"{runtime_class} / {quality_tier}"
         if self.runtime.inference_backend == "chatterbox":
-            backend_text = f"chatterbox ({self.runtime.real_backend_device})"
+            reason = getattr(self.runtime, "real_backend_device_reason", "") or "n/a"
+            backend_text = f"{runtime_class} -> chatterbox ({self.runtime.real_backend_device}, reason={reason})"
         if self.runtime.inference_backend == "mock" and self.runtime.real_backend_error:
-            backend_text = "mock (fallback)"
+            backend_text = f"{runtime_class} -> mock ({self.runtime.real_backend_error})"
         return backend_text
 
     def _configure_styles(self) -> None:
@@ -202,8 +212,8 @@ class LocalEngineWindow:
         subtitle = ttk.Label(
             hero,
             text=(
-                "Esta app corre en localhost para burlar limites del navegador y usar tu hardware local.\n"
-                "Codigo abierto y auditable. Al cerrar esta ventana, se apaga el motor."
+                "Esta app corre en localhost para ejecutar la ruta real de Chatterbox fuera del navegador.\n"
+                "Codigo abierto y auditable. Al cerrar esta ventana, se apaga el daemon local."
             ),
             style="Subtitle.TLabel",
             justify=tk.LEFT,
@@ -318,7 +328,17 @@ class LocalEngineWindow:
         )
 
     def enqueue_log(self, message: str) -> None:
-        self.log_queue.put(message)
+        timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+        self._append_persistent_log(timestamped)
+        self.log_queue.put(timestamped)
+
+    def _append_persistent_log(self, message: str) -> None:
+        try:
+            with self.log_file_path.open("a", encoding="utf-8") as stream:
+                stream.write(f"{message}\n")
+        except Exception:
+            # Avoid breaking the launcher UI because of log file IO issues.
+            pass
 
     def flush_logs(self) -> None:
         pending: list[str] = []

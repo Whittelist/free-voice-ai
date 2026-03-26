@@ -5,11 +5,34 @@ Aplicacion web para texto a voz con arquitectura dual:
 1. `Modo Rapido` (browser-only): SpeechT5/MMS en WebGPU/WASM.
 2. `Modo Pro` (local): motor instalable en localhost para mayor calidad y clonacion real por referencia.
 
+Estado de producto: **publico y funcional**, en **technical preview**.
+
+## Alcance real de esta fase
+
+Bajo estas condiciones, el flujo actual funciona bien y es el que estamos validando activamente:
+
+1. Windows 10/11
+2. Chrome/Edge
+3. Web en Railway (HTTPS) + launcher local Windows (`ZIP + BAT`)
+
+Fuera de ese entorno (macOS, Linux, Safari, Firefox, setups raros de drivers/GPU/antivirus), puede fallar.
+No ocultamos eso: si falla, queremos reporte estructurado para corregirlo en siguientes iteraciones.
+
+Ruta de soporte cuando algo no funciona:
+
+1. Exporta diagnostico (`Export Studio Voice Diagnostics.bat`)
+2. Abre `/support`
+3. Pega `support_bundle.json` + pasos + error textual
+
 ## Documentacion principal
 
 1. Plan vigente: [`plan_modo_pro_local.md`](./plan_modo_pro_local.md)
 2. Alias legacy: [`plan_elemento_externo.md`](./plan_elemento_externo.md)
 3. Plan anterior: [`implementation_plan.md`](./implementation_plan.md)
+4. Runbook operativo Windows (sesion real): [`local_engine_windows/RUNBOOK_modo_pro_windows.md`](./local_engine_windows/RUNBOOK_modo_pro_windows.md)
+5. Guia usuario Windows: [`docs/windows_user_guide.md`](./docs/windows_user_guide.md)
+6. FAQ troubleshooting: [`docs/troubleshooting_faq.md`](./docs/troubleshooting_faq.md)
+7. Runbook interno release/soporte: [`docs/runbook_internal.md`](./docs/runbook_internal.md)
 
 ## Frontend (Vite + React)
 
@@ -22,8 +45,9 @@ Variables opcionales:
 
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
-3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL` (opcional, default: `https://github.com/Whittelist/free-voice-ai/blob/main/releases/StudioVoiceLocalEngine.exe?raw=1`)
-4. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
+3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL` (URL del ZIP launcher Windows)
+4. `VITE_PUBLIC_APP_ORIGIN` (origen web publico esperado)
+5. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
 
 ## Deploy en Railway
 
@@ -38,6 +62,13 @@ Pasos:
 2. Despliega (build con `npm ci` + `npm run build`).
 3. Arranque con `npm run start:railway` (usa `$PORT`).
 
+Variables backend para soporte interno:
+
+1. `DATABASE_URL`
+2. `BUG_REPORTS_ADMIN_PASSWORD`
+3. `BUG_REPORTS_SESSION_SECRET`
+4. `PUBLIC_WEB_ORIGIN` (documental/operativa)
+
 Si aparece error de build por `rolldown` en Railway:
 
 1. Este repo ya fuerza Node 22 y optional deps en `nixpacks.toml`.
@@ -50,18 +81,36 @@ Notas:
 2. El `Modo Pro` sigue ejecutando inferencia en localhost del usuario.
 3. Para pruebas reales de Modo Pro desde dominio Railway, configura en el motor local:
    - `LOCAL_ENGINE_ALLOWED_ORIGINS=http://localhost:5173,https://TU-DOMINIO-RAILWAY`
+4. Soporte integrado en web:
+   - Boton flotante abajo a la izquierda: `Hubo un error? Reportalo`
+   - `POST /api/bug-reports`
+   - `GET /api/admin/bug-reports`
+   - `GET /api/admin/bug-reports/:id`
+   - `POST /api/admin/bug-reports/:id/status`
 
-## Motor local Windows (MVP)
+## Motor local Windows
 
 Carpeta: [`local_engine_windows`](./local_engine_windows)
 
-Quickstart:
+Instalacion/launcher de un clic:
 
 ```powershell
-.\local_engine_windows\run_local_engine.bat
+.\local_engine_windows\install_local_engine.ps1
 ```
 
-Tambien puedes usar:
+Packaging release ZIP (launcher portable para usuarios finales):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\local_engine_windows\build_portable_release.ps1 -PublicWebUrl "https://TU-DOMINIO"
+```
+
+o desde npm:
+
+```powershell
+npm run local-engine:install
+```
+
+Arranque directo del daemon:
 
 ```powershell
 .\local_engine_windows\run_local_engine.bat
@@ -73,7 +122,15 @@ o desde npm (Windows):
 npm run local-engine
 ```
 
-Build de release (`.exe`) para distribucion:
+Notas del runtime real:
+
+1. La ruta prioritaria es `BAT/launcher + daemon local`, no el `.exe` congelado.
+2. Python `3.11` es el baseline soportado para el runtime Pro.
+3. El daemon clasifica el runtime como `real_gpu`, `real_cpu`, `mock` o `disabled_frozen`.
+4. La TTS Pro usa referencias por defecto de `es/en` cuando no subes audio.
+5. El texto largo se segmenta automaticamente en bloques de hasta `300` caracteres.
+
+Build de release (`.exe`) legacy:
 
 ```powershell
 .\local_engine_windows\build_windows.ps1
@@ -91,6 +148,11 @@ Guia completa de build/SmartScreen/antivirus:
 2. Binario publicado en repo: [`releases/StudioVoiceLocalEngine.exe`](./releases/StudioVoiceLocalEngine.exe)
 3. Hash publicado: [`releases/StudioVoiceLocalEngine.exe.sha256`](./releases/StudioVoiceLocalEngine.exe.sha256)
 
+Panel de soporte:
+
+1. Publico: `/support`
+2. Admin: `/support/admin`
+
 Si se interrumpio la creacion del entorno virtual:
 
 ```powershell
@@ -102,4 +164,4 @@ npm run local-engine
 
 1. Bind a `127.0.0.1`.
 2. Token local obligatorio en endpoints privados.
-3. Validacion estricta de `Origin`.
+3. Validacion de `Origin` con allowlist/config persistente.

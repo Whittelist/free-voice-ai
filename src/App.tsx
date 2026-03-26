@@ -20,6 +20,7 @@ import {
   getDefaultLocalEngineUrl,
   localEngineClient,
   MAX_REFERENCE_AUDIO_BYTES,
+  requestLoopbackPermission,
 } from "./localEngineClient";
 import "./index.css";
 
@@ -46,6 +47,8 @@ const PRO_TEXT_EN =
 const PRO_ENABLED = import.meta.env.VITE_ENABLE_PRO_MODE !== "false";
 const PRO_MODEL_PROFILE = "pro_multilingual_balanced";
 const MAX_REFERENCE_AUDIO_MB = Math.max(1, Math.round(MAX_REFERENCE_AUDIO_BYTES / (1024 * 1024)));
+const PRO_SEGMENT_CHARS = 300;
+const MAX_TEXT_CHARACTERS = 1200;
 const PRO_CFG_WEIGHT_RANGE = { min: 0.0, max: 1.5, step: 0.05 } as const;
 const PRO_EXAGGERATION_RANGE = { min: 0.0, max: 2.0, step: 0.05 } as const;
 const PRO_TEMPERATURE_RANGE = { min: 0.1, max: 2.0, step: 0.05 } as const;
@@ -56,11 +59,50 @@ const PRO_ADVANCED_DEFAULTS = {
 } as const;
 const LOCAL_ENGINE_WINDOWS_INSTALLER_URL =
   (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL as string | undefined) ??
-  "https://github.com/Whittelist/free-voice-ai/blob/main/releases/StudioVoiceLocalEngine.exe?raw=1";
+  "https://github.com/Whittelist/free-voice-ai/releases/latest/download/studio-voice-local-windows-preview.zip";
+const SUPPORT_PAGE_URL = "/support";
 const PRO_DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   queued: "en cola",
-  downloading: "descargando componentes",
+  downloading: "precargando backend real",
   initializing_backend: "inicializando backend real (cache/checkpoints)",
+};
+
+const getRuntimeLabel = (capabilities: EngineCapabilities | null): string => {
+  switch (capabilities?.runtime_class) {
+    case "real_gpu":
+      return "GPU real";
+    case "real_cpu":
+      return "CPU real";
+    case "disabled_frozen":
+      return "backend real desactivado en runtime congelado";
+    case "mock":
+      return "modo compatible / mock";
+    default:
+      return "desconocido";
+  }
+};
+
+const getEngineStatusLabel = (status: EngineStatus): string => {
+  switch (status) {
+    case "ready_gpu":
+      return "GPU REAL";
+    case "ready_cpu":
+      return "CPU REAL";
+    case "compatible_mock":
+      return "MODO MOCK";
+    case "blocked_permission":
+      return "PERMISO LOCAL";
+    case "blocked_origin":
+      return "ORIGIN BLOQUEADO";
+    case "downloading":
+      return "PREPARANDO";
+    case "stopped":
+      return "DETENIDO";
+    case "error":
+      return "ERROR";
+    default:
+      return "OFFLINE";
+  }
 };
 
 function App() {
@@ -125,10 +167,14 @@ function App() {
 
   const currentStatusClass = useMemo(() => {
     switch (engineStatus) {
-      case "ready":
+      case "ready_gpu":
+      case "ready_cpu":
         return "status-ready";
       case "downloading":
         return "status-downloading";
+      case "compatible_mock":
+      case "blocked_permission":
+      case "blocked_origin":
       case "error":
         return "status-error";
       case "stopped":
@@ -137,6 +183,69 @@ function App() {
         return "status-missing";
     }
   }, [engineStatus]);
+
+  const runtimeLabel = useMemo(() => getRuntimeLabel(engineCapabilities), [engineCapabilities]);
+  const engineStatusLabel = useMemo(() => getEngineStatusLabel(engineStatus), [engineStatus]);
+  const estimatedSegments = useMemo(
+    () => Math.max(1, Math.ceil(text.trim().length / PRO_SEGMENT_CHARS)),
+    [text],
+  );
+
+  const applyCapabilityState = useCallback(
+    (capabilities: EngineCapabilities, verbose = false) => {
+      const runtimeClass = capabilities.runtime_class;
+      const detail = capabilities.real_backend_error ? ` ${capabilities.real_backend_error}` : "";
+
+      if (runtimeClass === "real_gpu") {
+        if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
+          setEngineStatus("ready_gpu");
+          setEngineNote("Motor local listo en GPU real. Esta es la ruta mas cercana a la demo oficial.");
+          if (verbose) addLog("Modo Pro: runtime real en GPU listo.");
+        } else {
+          setEngineStatus("stopped");
+          setEngineNote("Motor local detectado con GPU real. Falta precargar/cargar el backend Pro.");
+          if (verbose) addLog("Modo Pro: GPU real detectada, backend aun no precargado.");
+        }
+        return;
+      }
+
+      if (runtimeClass === "real_cpu") {
+        if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
+          setEngineStatus("ready_cpu");
+          setEngineNote(
+            "Motor local listo en CPU real. Funciona de verdad, pero no deberias esperar la misma latencia ni paridad que una demo en GPU." +
+              detail,
+          );
+          if (verbose) addLog("Modo Pro: runtime real en CPU activo.");
+        } else {
+          setEngineStatus("stopped");
+          setEngineNote(
+            "Motor local detectado en CPU real. Puedes usarlo, pero la calidad/latencia no igualara una ruta GPU." + detail,
+          );
+          if (verbose) addLog("Modo Pro: runtime real en CPU detectado.");
+        }
+        return;
+      }
+
+      if (runtimeClass === "disabled_frozen") {
+        setEngineStatus("compatible_mock");
+        setEngineNote(
+          "El backend real esta desactivado en runtime congelado. Usa el instalador/launcher local o run_local_engine.bat para la ruta real." +
+            detail,
+        );
+        if (verbose) addLog("Modo Pro: runtime congelado sin backend real.");
+        return;
+      }
+
+      setEngineStatus("compatible_mock");
+      setEngineNote(
+        "Motor local en modo compatible/mock. Puede servir para depuracion, pero no cuenta como clonacion real ni como paridad con la demo." +
+          detail,
+      );
+      if (verbose) addLog("Modo Pro: backend en modo compatible/mock.");
+    },
+    [addLog],
+  );
 
   const refreshEngineStatus = useCallback(
     async (verbose = false) => {
@@ -168,14 +277,19 @@ function App() {
           lnaPermission !== "unsupported"
             ? ` Estado del permiso local-network-access: ${lnaPermission}.`
             : "";
-        setEngineStatus("not_installed");
+        const permissionBlocked = secureRemote && (lnaPermission === "prompt" || lnaPermission === "denied");
+        setEngineStatus(permissionBlocked ? "blocked_permission" : "not_installed");
         setEngineNote(
-          `No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat.${secureHint}${lnaHint}${lnaStateHint}`,
+          permissionBlocked
+            ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint}${lnaStateHint}`
+            : `No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat.${secureHint}${lnaHint}${lnaStateHint}`,
         );
         setEngineCapabilities(null);
         setDownloadState(null);
         lastLoggedDownloadStageRef.current = null;
-        if (verbose) addLog("Modo Pro: motor local no detectado.");
+        if (verbose) {
+          addLog(permissionBlocked ? "Modo Pro: permiso local pendiente/bloqueado." : "Modo Pro: motor local no detectado.");
+        }
         if (verbose && typeof window !== "undefined") {
           addLog(
             `Diagnostico Pro: origin=${window.location.origin}, secure=${window.isSecureContext}, motor=${engineUrl}`,
@@ -201,31 +315,13 @@ function App() {
         setEngineCapabilities(capabilities);
         setDownloadState(download);
 
-        if (capabilities.inference_backend === "mock") {
-          const detail = capabilities.real_backend_error ? ` ${capabilities.real_backend_error}` : "";
-          if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
-            setEngineStatus("ready");
-            setEngineNote(
-              `Motor local listo en modo compatible. Puedes generar voz, pero la clonacion real no estara disponible.${detail}`,
-            );
-          } else {
-            setEngineStatus("stopped");
-            setEngineNote(
-              `Motor local en modo compatible. Pulsa 'Preparar modo Pro' para continuar con generacion basica.${detail}`,
-            );
-          }
-          if (verbose) addLog("Modo Pro: backend en modo compatible (sin clonacion real).");
-          lastLoggedDownloadStageRef.current = null;
-          return;
-        }
-
         if (download.status === "downloading") {
           const stage = download.stage ?? "downloading";
           const stageLabel = PRO_DOWNLOAD_STAGE_LABELS[stage] ?? stage;
           const stageMessage =
             stage === "initializing_backend"
               ? "Inicializando backend real y cacheando checkpoints (primera vez puede tardar varios minutos)..."
-              : "Descargando modelo Pro...";
+              : "Precargando backend real de Chatterbox...";
           setEngineStatus("downloading");
           setEngineNote(`${stageMessage} ${download.progress.toFixed(1)}%.`);
           setProgress({
@@ -253,36 +349,33 @@ function App() {
           return;
         }
 
-        if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
-          setEngineStatus("ready");
-          setEngineNote("Motor local listo para sintesis y clonacion.");
-          lastLoggedDownloadErrorRef.current = null;
-          lastLoggedDownloadStageRef.current = null;
-          if (verbose) addLog("Modo Pro: motor listo.");
-          return;
-        }
-
-        setEngineStatus("stopped");
-        if (download.status === "completed") {
-          setEngineNote("Modelo descargado. Falta cargarlo en memoria.");
-          if (verbose) addLog("Modo Pro: modelo descargado, pendiente de cargar.");
-        } else {
-          setEngineNote("Motor detectado. Modelo no descargado.");
-          if (verbose) addLog("Modo Pro: motor detectado, modelo pendiente de descarga.");
+        applyCapabilityState(capabilities, verbose);
+        if (download.status === "completed" && capabilities.loaded_profile !== PRO_MODEL_PROFILE) {
+          setEngineStatus("stopped");
+          setEngineNote(`Backend real precargado (${getRuntimeLabel(capabilities)}). Falta cargarlo en memoria.`);
+          if (verbose) addLog("Modo Pro: backend precargado, pendiente de carga en memoria.");
         }
         lastLoggedDownloadStageRef.current = null;
       } catch (error) {
-        setEngineStatus("error");
         if (error instanceof LocalEngineError) {
-          setEngineNote(`API local ${error.status} - ${error.code}: ${error.message}`);
+          if (error.code === "ORIGIN_NOT_ALLOWED") {
+            setEngineStatus("blocked_origin");
+            setEngineNote(
+              `Este dominio no esta autorizado por el daemon local. Ajusta LOCAL_ENGINE_ALLOWED_ORIGINS o config.json. ${error.message}`,
+            );
+          } else {
+            setEngineStatus("error");
+            setEngineNote(`API local ${error.status} - ${error.code}: ${error.message}`);
+          }
           if (verbose) addLog(`Modo Pro: ${error.code} (${error.status}).`);
         } else {
+          setEngineStatus("error");
           setEngineNote("Error de conexion con API local.");
           if (verbose) addLog("Modo Pro: error inesperado consultando estado.");
         }
       }
     },
-    [addLog, engineToken, engineUrl],
+    [addLog, applyCapabilityState, engineToken, engineUrl],
   );
 
   const ensureProModelReady = useCallback(
@@ -309,12 +402,7 @@ function App() {
         setEngineCapabilities(capabilities);
 
         if (capabilities.loaded_profile === PRO_MODEL_PROFILE) {
-          setEngineStatus("ready");
-          if (capabilities.inference_backend === "mock") {
-            setEngineNote("Motor local listo en modo compatible (sin clonacion real).");
-          } else {
-            setEngineNote("Motor local listo para sintesis y clonacion.");
-          }
+          applyCapabilityState(capabilities, verbose);
           return;
         }
 
@@ -329,10 +417,10 @@ function App() {
 
         if (download.status !== "completed") {
           if (download.status === "idle") {
-            addLog("Modo Pro: modelo no descargado, iniciando descarga automatica...");
+            addLog("Modo Pro: backend no precargado, iniciando preparacion automatica...");
             await localEngineClient.downloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
           } else if (verbose) {
-            addLog("Modo Pro: reusando descarga ya iniciada.");
+            addLog("Modo Pro: reusando preparacion ya iniciada.");
           }
 
           while (true) {
@@ -355,10 +443,10 @@ function App() {
             const stageLabel = PRO_DOWNLOAD_STAGE_LABELS[stage] ?? stage;
             setEngineStatus("downloading");
             setEngineNote(
-              `Preparando modelo Pro... ${download.progress.toFixed(1)}% (fase: ${stageLabel}).`,
+              `Preparando backend Pro real... ${download.progress.toFixed(1)}% (fase: ${stageLabel}).`,
             );
             setProgress({
-              status: `Preparando modelo Pro [${stageLabel}]`,
+              status: `Preparando backend Pro real [${stageLabel}]`,
               progress: download.progress,
             });
           }
@@ -368,20 +456,14 @@ function App() {
         await localEngineClient.loadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
         capabilities = await localEngineClient.capabilities(engineUrl, engineToken);
         setEngineCapabilities(capabilities);
-        setEngineStatus("ready");
-        if (capabilities.inference_backend === "mock") {
-          setEngineNote("Motor local listo en modo compatible. La clonacion real no estara disponible.");
-          addLog("Modo Pro: cargado en modo compatible por recursos del sistema.");
-        } else {
-          setEngineNote("Motor local listo para sintesis y clonacion.");
-          addLog("Modo Pro: modelo cargado y listo.");
-        }
+        applyCapabilityState(capabilities, true);
+        addLog(`Modo Pro: backend cargado con runtime ${getRuntimeLabel(capabilities)}.`);
       } finally {
         setIsPreparingPro(false);
         setProgress(null);
       }
     },
-    [addLog, engineToken, engineUrl],
+    [addLog, applyCapabilityState, engineToken, engineUrl],
   );
 
   useEffect(() => {
@@ -464,6 +546,20 @@ function App() {
     setReferenceAudio(file);
     if (file) {
       addLog(`Modo Pro: referencia cargada (${file.name}).`);
+      addLog("Modo Pro: si la referencia esta en otro idioma, prueba cfg_weight=0.0 para reducir accent bleed.");
+    }
+  };
+
+  const handleRequestLocalAccess = async () => {
+    try {
+      addLog("Modo Pro: solicitando permiso de acceso local a Chrome/Edge...");
+      await requestLoopbackPermission(engineUrl);
+      await refreshEngineStatus(true);
+    } catch (error) {
+      const message = formatUiError(error, "No se pudo solicitar el permiso local.");
+      addLog(`Modo Pro ERROR: ${message}`);
+      setEngineStatus("blocked_permission");
+      setEngineNote(message);
     }
   };
 
@@ -525,11 +621,11 @@ function App() {
       return;
     }
     try {
-      addLog("Modo Pro: iniciando descarga del modelo...");
+      addLog("Modo Pro: iniciando precarga del backend real...");
       await localEngineClient.downloadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
       await refreshEngineStatus(true);
     } catch (error) {
-      const message = formatUiError(error, "Error iniciando descarga.");
+      const message = formatUiError(error, "Error iniciando la precarga del backend.");
       addLog(`Modo Pro ERROR: ${message}`);
       setEngineStatus("error");
       setEngineNote(message);
@@ -538,14 +634,14 @@ function App() {
 
   const handleLoadModel = async () => {
     try {
-      addLog("Modo Pro: cargando modelo en memoria...");
-      setProgress({ status: "Cargando modelo Pro en memoria..." });
+      addLog("Modo Pro: cargando backend Pro en memoria...");
+      setProgress({ status: "Cargando backend Pro en memoria..." });
       await localEngineClient.loadModel(engineUrl, engineToken, PRO_MODEL_PROFILE);
       await refreshEngineStatus(true);
       setProgress(null);
-      addLog("Modo Pro: modelo cargado.");
+      addLog("Modo Pro: backend cargado.");
     } catch (error) {
-      const message = formatUiError(error, "Error cargando modelo.");
+      const message = formatUiError(error, "Error cargando backend.");
       addLog(`Modo Pro ERROR: ${message}`);
       setProgress(null);
       setEngineStatus("error");
@@ -577,7 +673,7 @@ function App() {
   const generatePro = async () => {
     if (referenceAudio && referenceAudio.size > MAX_REFERENCE_AUDIO_BYTES) {
       throw new Error(
-        `El audio de referencia supera el limite de ${MAX_REFERENCE_AUDIO_MB} MB. Usa un clip corto de unos 5 segundos.`,
+        `El audio de referencia supera el limite de ${MAX_REFERENCE_AUDIO_MB} MB. Usa una muestra limpia de 3 a 10 segundos.`,
       );
     }
 
@@ -588,6 +684,7 @@ function App() {
       text,
       language: proLanguage,
       quality_profile: PRO_MODEL_PROFILE,
+      use_default_reference: !referenceAudio,
       ...advancedOptions,
     };
 
@@ -599,12 +696,16 @@ function App() {
     addLog(
       `Modo Pro: parametros -> cfg_weight=${advancedOptions.cfg_weight.toFixed(2)}, exaggeration=${advancedOptions.exaggeration.toFixed(2)}, temperature=${advancedOptions.temperature.toFixed(2)}, seed=${advancedOptions.seed ?? "auto"}.`,
     );
+    if (estimatedSegments > 1) {
+      addLog(`Modo Pro: el texto se enviara segmentado en ${estimatedSegments} bloques de hasta ${PRO_SEGMENT_CHARS} caracteres.`);
+    }
     setProgress({ status: "Generando audio en motor local...", progress: 1 });
 
     const phaseLabels: Record<string, string> = {
       start: "inicio",
       initializing_backend: "inicializando backend",
       preparing_reference: "preparando referencia",
+      segmenting_text: "segmentando texto",
       sampling: "sampling",
       serializing_audio: "serializando audio",
       completed: "completado",
@@ -648,6 +749,13 @@ function App() {
         if (!pollingErrored) {
           const message = formatUiError(error, "error desconocido");
           addLog(`Modo Pro WARN: no se pudieron leer eventos en vivo (${message}).`);
+          try {
+            await localEngineClient.health(engineUrl);
+          } catch {
+            setEngineStatus("not_installed");
+            setEngineNote("El motor local dejo de responder durante la inferencia. Reinicialo.");
+            addLog("Modo Pro ERROR: el motor local parece caido o cerrado durante la generacion.");
+          }
           pollingErrored = true;
         }
       } finally {
@@ -679,7 +787,8 @@ function App() {
 
     let blob: Blob;
     try {
-      const compatibleMode = engineCapabilities?.inference_backend === "mock";
+      const compatibleMode =
+        engineCapabilities?.runtime_class === "mock" || engineCapabilities?.runtime_class === "disabled_frozen";
       if (referenceAudio) {
         if (compatibleMode) {
           addLog("Modo Pro: referencia usada en modo compatible (sin clonacion real).");
@@ -692,7 +801,7 @@ function App() {
           reference_audio: referenceAudio,
         });
       } else {
-        addLog("Modo Pro: sintesis local sin referencia.");
+        addLog("Modo Pro: sintesis local con referencia por defecto del idioma.");
         blob = await localEngineClient.synthesize(engineUrl, engineToken, {
           ...payload,
           request_id: requestId,
@@ -711,7 +820,7 @@ function App() {
 
   const handleAutoPreparePro = async () => {
     try {
-      addLog("Modo Pro: preparando flujo automatico (motor + modelo)...");
+      addLog("Modo Pro: preparando flujo automatico (daemon + backend real)...");
       await ensureProModelReady(true);
     } catch (error) {
       const message = formatUiError(error, "Error preparando Modo Pro.");
@@ -746,13 +855,17 @@ function App() {
   const modeDescription =
     mode === "quick"
       ? "Modo rapido: ejecucion 100% en navegador."
-      : "Modo Pro: motor local para maxima calidad y clonacion real.";
+      : "Modo Pro: daemon local para acercarse a la ruta oficial de Chatterbox.";
 
   return (
     <div className="app-container">
       <header>
         <h1>Studio Voice AI</h1>
-        <p>Texto a voz con modo rapido y modo Pro local para maxima calidad.</p>
+        <p>Texto a voz con modo rapido y un daemon local Pro para ejecutar Chatterbox fuera del navegador.</p>
+        <p className="help-text">
+          Modo Pro se publica como <strong>preview tecnica</strong>. Si algo falla, reportalo en{" "}
+          <a href={SUPPORT_PAGE_URL}>Soporte</a>.
+        </p>
       </header>
 
       <main className="glass-card">
@@ -761,8 +874,8 @@ function App() {
           <div>
             <strong>Descargas pesadas en Modo Pro</strong>
             <p>
-              El modo Pro puede requerir descargas grandes para habilitar clonacion real y mas calidad.
-              Railway se usa como control plane; la inferencia pesada ocurre en tu equipo.
+              Railway se usa solo como control plane. La inferencia pesada y la ruta que de verdad importa ocurren en
+              tu equipo, no en el navegador.
             </p>
           </div>
         </div>
@@ -812,13 +925,14 @@ function App() {
             <div className="engine-panel">
               <div className="engine-header">
                 <strong>Motor local Pro (localhost)</strong>
-                <span className={`engine-status ${currentStatusClass}`}>{engineStatus}</span>
+                <span className={`engine-status ${currentStatusClass}`}>{engineStatusLabel}</span>
               </div>
               <p className="engine-note">{engineNote}</p>
               <div className="engine-download-cta">
                 <p className="engine-note">
-                  <strong>Quieres usar el modelo Pro?</strong> Descarga el Local Engine para ejecutar la parte pesada
-                  fuera del navegador, evitar bloqueos de memoria y mejorar rendimiento.
+                  <strong>Quieres usar la ruta real de Chatterbox?</strong> Instala o lanza el daemon local para
+                  ejecutar la parte pesada fuera del navegador. Si no hay GPU real, no esperes paridad completa con la
+                  demo oficial.
                 </p>
                 <a
                   className="btn-secondary"
@@ -826,11 +940,14 @@ function App() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <Download size={16} /> Descargar Local Engine (.exe)
+                  <Download size={16} /> Descargar ZIP launcher Windows
+                </a>
+                <a className="btn-secondary" href={SUPPORT_PAGE_URL}>
+                  <AlertTriangle size={16} /> Reportar bug / soporte
                 </a>
                 <small className="help-text">
-                  Pasos: 1) Descarga y ejecuta el <code>.exe</code>. 2) Copia el token de la ventana local.
-                  3) Pegalo aqui y pulsa <code>Preparar modo Pro</code>.
+                  Pasos: 1) Lanza el daemon local. 2) Copia el token de la ventana local. 3) En Chrome/Edge concede
+                  acceso a red local si el sitio esta en HTTPS. 4) Pulsa <code>Preparar modo Pro</code>.
                 </small>
               </div>
 
@@ -860,6 +977,14 @@ function App() {
                 <button
                   type="button"
                   className="btn-secondary"
+                  onClick={() => void handleRequestLocalAccess()}
+                  disabled={isPreparingPro || isProcessing}
+                >
+                  <Server size={16} /> Permitir acceso local
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
                   onClick={() => void handleAutoPreparePro()}
                   disabled={isPreparingPro || isProcessing}
                 >
@@ -880,7 +1005,7 @@ function App() {
                   onClick={() => void handleStartDownload()}
                   disabled={isPreparingPro || isProcessing}
                 >
-                  <Download size={16} /> Descargar modelo Pro
+                  <Download size={16} /> Precargar backend
                 </button>
                 <button
                   type="button"
@@ -903,16 +1028,16 @@ function App() {
 
               {downloadState && (
                 <div className="download-info">
-                  <strong>Descarga:</strong> {downloadState.status} ({downloadState.progress.toFixed(1)}%)
+                  <strong>Preparacion:</strong> {downloadState.status} ({downloadState.progress.toFixed(1)}%)
                 </div>
               )}
 
               {engineCapabilities && (
                 <div className="capability-info">
-                  Plataforma: {engineCapabilities.platform} | GPU:{" "}
-                  {engineCapabilities.gpu_available ? "disponible" : "no detectada"} | Perfil cargado:{" "}
-                  {engineCapabilities.loaded_profile ?? "ninguno"} | Backend:{" "}
-                  {engineCapabilities.inference_backend ?? "desconocido"}
+                  Plataforma: {engineCapabilities.platform} | Runtime: {runtimeLabel} | Perfil cargado:{" "}
+                  {engineCapabilities.loaded_profile ?? "ninguno"} | Device:{" "}
+                  {engineCapabilities.real_backend_device ?? "desconocido"} | Torch:{" "}
+                  {engineCapabilities.real_backend_torch_info?.torch_version ?? "n/d"}
                 </div>
               )}
             </div>
@@ -943,8 +1068,8 @@ function App() {
                   className="hidden-input"
                 />
                 <small className="help-text">
-                  Recomendado: un clip limpio de unos 5 segundos. El motor recorta y normaliza la referencia
-                  antes de clonar. Límite duro: {MAX_REFERENCE_AUDIO_MB} MB.
+                  Recomendado: un clip limpio de 3 a 10 segundos. Límite duro: {MAX_REFERENCE_AUDIO_MB} MB y 30
+                  segundos tras normalizar. Si la referencia está en otro idioma, suele convenir <code>cfg_weight=0.0</code>.
                 </small>
               </div>
             </div>
@@ -1031,9 +1156,11 @@ function App() {
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder="Escribe aqui el texto..."
-            maxLength={700}
+            maxLength={MAX_TEXT_CHARACTERS}
           />
-          <div className="char-counter">{text.length} / 700 caracteres</div>
+          <div className="char-counter">
+            {text.length} / {MAX_TEXT_CHARACTERS} caracteres · {estimatedSegments} segmento(s) de max {PRO_SEGMENT_CHARS}
+          </div>
         </div>
 
         <button
@@ -1055,7 +1182,8 @@ function App() {
         </button>
         {mode === "pro" && (
           <small className="help-text">
-            En Modo Pro, `Generar voz` prepara automaticamente el modelo (descarga + carga) si todavia no esta listo.
+            En Modo Pro, `Generar voz` prepara automaticamente el backend real si todavia no esta listo. La TTS
+            normal usa una referencia por defecto por idioma; la clonacion real usa tu audio.
           </small>
         )}
 

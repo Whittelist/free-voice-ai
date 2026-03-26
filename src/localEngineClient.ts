@@ -2,7 +2,11 @@ export type EngineStatus =
   | "not_installed"
   | "stopped"
   | "downloading"
-  | "ready"
+  | "ready_gpu"
+  | "ready_cpu"
+  | "compatible_mock"
+  | "blocked_permission"
+  | "blocked_origin"
   | "error";
 
 export type DownloadState = {
@@ -23,9 +27,32 @@ export type EngineCapabilities = {
   simulate_download: boolean;
   inference_backend?: "mock" | "chatterbox" | string;
   backend_mode?: "auto" | "mock" | "chatterbox" | string;
+  runtime_class?: "real_gpu" | "real_cpu" | "mock" | "disabled_frozen" | string;
+  quality_tier?: "pro_real" | "degraded_cpu" | "compatible_mock" | "disabled_frozen" | string;
   real_backend_available?: boolean;
   real_backend_device?: string;
+  real_backend_device_reason?: string;
+  real_backend_cuda_index?: number | null;
+  real_backend_cuda_devices?: Array<{
+    index: number;
+    name?: string;
+    total_memory_bytes?: number;
+    capability?: string;
+    capability_sm?: string;
+    supported_by_build?: boolean;
+    error?: string;
+  }>;
+  real_backend_torch_info?: {
+    torch_version?: string | null;
+    torch_cuda_build?: string | null;
+    cuda_visible_devices?: string | null;
+    cuda_available?: boolean;
+    cuda_device_count?: number;
+    cuda_supported_arches?: string[];
+  };
   real_backend_error?: string | null;
+  allowed_origins?: string[];
+  allowed_origin_regex?: string | null;
 };
 
 export type HealthPayload = {
@@ -39,6 +66,7 @@ export type SpeechRequest = {
   language: "es" | "en";
   quality_profile: string;
   request_id?: string;
+  use_default_reference?: boolean;
   cfg_weight?: number;
   exaggeration?: number;
   temperature?: number;
@@ -150,6 +178,10 @@ const warmupLoopbackPermission = async (baseUrl: string): Promise<void> => {
   } catch {
     // Best-effort warm-up. We reattempt the original request immediately after this.
   }
+};
+
+export const requestLoopbackPermission = async (baseUrl?: string): Promise<void> => {
+  await warmupLoopbackPermission(asBaseUrl(baseUrl));
 };
 
 const parseJsonSafe = async (response: Response): Promise<unknown> => {

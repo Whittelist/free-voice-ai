@@ -13,11 +13,16 @@
     "preview": "vite preview",
     "start": "node server.mjs",
     "start:railway": "node server.mjs",
-    "local-engine": "local_engine_windows\\run_local_engine.bat"
+    "local-engine": "local_engine_windows\\run_local_engine.bat",
+    "local-engine:install": "powershell -ExecutionPolicy Bypass -File local_engine_windows\\install_local_engine.ps1",
+    "local-engine:package": "powershell -ExecutionPolicy Bypass -File local_engine_windows\\build_portable_release.ps1",
+    "local-engine:diagnostics": "powershell -ExecutionPolicy Bypass -File local_engine_windows\\export_diagnostics.ps1",
+    "local-engine:compare": "local_engine_windows\\.venv\\Scripts\\python.exe local_engine_windows\\compare_upstream.py"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "lucide-react": "^0.577.0",
+    "pg": "^8.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "serve": "^14.2.6"

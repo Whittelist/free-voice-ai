@@ -5,47 +5,56 @@ cd /d "%~dp0"
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 set "BOOTSTRAP_SENTINEL=.venv\.bootstrap_done"
 set "PRO_SENTINEL=.venv\.pro_deps_done"
+set "CHATTERBOX_PACKAGE=chatterbox-tts==0.1.6"
+set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu128"
+set "TORCH_GPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
+set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
 set "ENGINE_PORT=%LOCAL_ENGINE_PORT%"
 if not defined ENGINE_PORT set "ENGINE_PORT=57641"
+
+if /i not "%LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES%"=="1" (
+  if defined CUDA_VISIBLE_DEVICES (
+    if /i not "%CUDA_VISIBLE_DEVICES%"=="0" (
+      echo [INFO] Detectado CUDA_VISIBLE_DEVICES=%CUDA_VISIBLE_DEVICES% en el entorno.
+      echo [INFO] Se forzara CUDA_VISIBLE_DEVICES=0 por estabilidad multi-GPU ^(usa LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES=1 para mantener el valor original^).
+      set "CUDA_VISIBLE_DEVICES=0"
+    ) else (
+      echo [INFO] Detectado CUDA_VISIBLE_DEVICES=0. Se mantiene por estabilidad.
+    )
+  ) else (
+    if /i not "%LOCAL_ENGINE_PIN_FIRST_CUDA_DEVICE%"=="0" (
+      echo [INFO] No se detecto CUDA_VISIBLE_DEVICES. Se fijara a 0 por estabilidad multi-GPU.
+      set "CUDA_VISIBLE_DEVICES=0"
+    )
+  )
+)
 
 set "PY_CMD="
 set "PY_VER="
 
-REM 1) Preferimos runtimes compatibles con Modo Pro real.
+REM V1 fija Python 3.11 como baseline del motor local.
 where py >nul 2>nul && (
-  py -3.12 -c "import sys; print(sys.version)" >nul 2>nul && (
-    set "PY_CMD=py -3.12"
-    set "PY_VER=3.12"
+  py -3.11 -c "import sys; print(sys.version)" >nul 2>nul && (
+    set "PY_CMD=py -3.11"
+    set "PY_VER=3.11"
   )
 )
 
 if not defined PY_CMD (
-  where py >nul 2>nul && (
-    py -3.11 -c "import sys; print(sys.version)" >nul 2>nul && (
-      set "PY_CMD=py -3.11"
+  where python >nul 2>nul && (
+    python -c "import sys; sys.exit(0 if sys.version_info[:2]==(3,11) else 1)" >nul 2>nul && (
+      set "PY_CMD=python"
       set "PY_VER=3.11"
     )
   )
 )
 
-REM 2) Fallback a python.exe del PATH.
 if not defined PY_CMD (
-  where python >nul 2>nul && (
-    python -c "import sys; print(sys.version)" >nul 2>nul && set "PY_CMD=python"
-  )
-)
-
-REM 3) Fallback al launcher py generico.
-if not defined PY_CMD (
-  where py >nul 2>nul && (
-    py -3 -c "import sys; print(sys.version)" >nul 2>nul && set "PY_CMD=py -3"
-  )
-)
-
-if not defined PY_CMD (
-  echo [ERROR] No se encontro un runtime Python funcional.
-  echo [ERROR] Instala Python 3.11+ y marca "Add python.exe to PATH".
-  echo [ERROR] Consejo: ejecuta "py -0" para ver runtimes detectados.
+  echo [ERROR] No se encontro Python 3.11.
+  echo [ERROR] Este motor fija Python 3.11 como baseline del runtime local.
+  echo [ERROR] Instala Python 3.11 y marca "Add python.exe to PATH".
+  echo [ERROR] Consejo: ejecuta "py -0p" para ver runtimes detectados.
   exit /b 1
 )
 
@@ -105,10 +114,9 @@ if defined VENV_PY_VER (
 if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
   set "PY_PRO_OK=0"
   if "!PY_VER!"=="3.11" set "PY_PRO_OK=1"
-  if "!PY_VER!"=="3.12" set "PY_PRO_OK=1"
   if "!PY_PRO_OK!"=="0" (
     echo [WARN] Python !PY_VER! no es compatible con dependencias Pro reales ^(chatterbox/torch^).
-    echo [WARN] Instala Python 3.12 o 3.11 y relanza el script para habilitar clonacion real.
+    echo [WARN] Instala Python 3.11 y relanza el script para habilitar clonacion real.
     set "LOCAL_ENGINE_SKIP_PRO_DEPS=1"
   )
 )
@@ -148,7 +156,13 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
         echo [WARN] No se pudieron instalar dependencias Pro completas.
         echo [WARN] El motor arrancara en modo mock hasta resolver dependencias.
       ) else (
-        echo [INFO] Dependencias Pro instaladas.>%PRO_SENTINEL%
+        ".venv\Scripts\python.exe" -m pip install --no-deps %CHATTERBOX_PACKAGE%
+        if errorlevel 1 (
+          echo [WARN] No se pudo instalar %CHATTERBOX_PACKAGE% sin dependencias.
+          echo [WARN] El motor arrancara en modo mock hasta resolver dependencias.
+        ) else (
+          echo [INFO] Dependencias Pro instaladas.>%PRO_SENTINEL%
+        )
       )
     )
   )
@@ -184,18 +198,95 @@ if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
       if errorlevel 1 (
         echo [WARN] Dependencias Pro incompletas. Se mantendra modo mock.
       ) else (
-        echo [INFO] Dependencias Pro instaladas.>%PRO_SENTINEL%
+        ".venv\Scripts\python.exe" -m pip install --no-deps %CHATTERBOX_PACKAGE%
+        if errorlevel 1 (
+          echo [WARN] No se pudo instalar %CHATTERBOX_PACKAGE% sin dependencias.
+          echo [WARN] Dependencias Pro incompletas. Se mantendra modo mock.
+        ) else (
+          echo [INFO] Dependencias Pro instaladas.>%PRO_SENTINEL%
+        )
+      )
+    )
+  )
+)
+
+if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
+  if /i not "%LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL%"=="1" (
+    set "HAS_NVIDIA=0"
+    set "GPU_NAME="
+    set "TORCH_TARGET_INDEX_URL=%TORCH_GPU_INDEX_URL%"
+    set "TORCH_TARGET_PACKAGES=%TORCH_GPU_PACKAGES%"
+    set "TORCH_TARGET_LABEL=GPU CUDA 12.8"
+    where nvidia-smi >nul 2>nul && set "HAS_NVIDIA=1"
+    if "!HAS_NVIDIA!"=="1" (
+      for /f "tokens=2,* delims=:" %%a in ('nvidia-smi -L 2^>nul ^| findstr /b /c:"GPU 0"') do if not defined GPU_NAME set "GPU_NAME=%%a"
+      if defined GPU_NAME for /f "tokens=1 delims=(" %%g in ("!GPU_NAME!") do set "GPU_NAME=%%g"
+      if not defined GPU_NAME (
+        for /f "skip=1 usebackq delims=" %%g in (`nvidia-smi --query-gpu=name --format=csv 2^>nul`) do if not defined GPU_NAME set "GPU_NAME=%%g"
+      )
+      if defined GPU_NAME (
+        echo(!GPU_NAME! | findstr /i /c:"ERROR:" >nul && set "GPU_NAME="
+      )
+      if defined GPU_NAME (
+        for /f "tokens=* delims= " %%g in ("!GPU_NAME!") do set "GPU_NAME=%%g"
+        echo [INFO] GPU NVIDIA detectada: !GPU_NAME!
+      ) else (
+        echo [INFO] GPU NVIDIA detectada.
+      )
+      echo [INFO] Matriz oficial seleccionada: !TORCH_TARGET_LABEL! ^(!TORCH_TARGET_PACKAGES!^).
+    ) else (
+      set "TORCH_TARGET_INDEX_URL=%TORCH_CPU_INDEX_URL%"
+      set "TORCH_TARGET_PACKAGES=%TORCH_CPU_PACKAGES%"
+      set "TORCH_TARGET_LABEL=CPU"
+      echo [INFO] No se detecto GPU NVIDIA. Se asegurara la matriz oficial CPU ^(!TORCH_TARGET_PACKAGES!^).
+    )
+
+    set "TORCH_MATRIX_OK=0"
+    ".venv\Scripts\python.exe" -c "import sys,torch; expected_version='2.7.0'; expected_cuda='12.8' if '!HAS_NVIDIA!'=='1' else ''; version_ok=str(getattr(torch,'__version__','')).startswith(expected_version); cuda_build=str(getattr(getattr(torch,'version',None),'cuda',None) or ''); cuda_ok=(cuda_build==expected_cuda) if expected_cuda else (cuda_build==''); compat_ok=True; arches=set(torch.cuda.get_arch_list()) if expected_cuda and torch.cuda.is_available() else set(); count=int(torch.cuda.device_count()) if expected_cuda and torch.cuda.is_available() else 0; compat_ok=(any((not arches) or (f'sm_{torch.cuda.get_device_properties(i).major}{torch.cuda.get_device_properties(i).minor}' in arches) for i in range(count)) if expected_cuda and count else compat_ok); sys.exit(0 if version_ok and cuda_ok and compat_ok else 1)" >nul 2>nul
+    if not errorlevel 1 set "TORCH_MATRIX_OK=1"
+
+    if "!TORCH_MATRIX_OK!"=="0" (
+      echo [INFO] Instalando/actualizando la matriz oficial de torch para !TORCH_TARGET_LABEL!...
+      ".venv\Scripts\python.exe" -m pip install --upgrade --index-url "!TORCH_TARGET_INDEX_URL!" !TORCH_TARGET_PACKAGES!
+      if errorlevel 1 (
+        echo [WARN] No se pudo instalar la matriz oficial de torch para !TORCH_TARGET_LABEL!.
+        if "!HAS_NVIDIA!"=="1" (
+          echo [WARN] Se intentara un fallback honesto a CPU para evitar un entorno roto.
+          ".venv\Scripts\python.exe" -m pip install --upgrade --index-url "%TORCH_CPU_INDEX_URL%" %TORCH_CPU_PACKAGES%
+        )
+      )
+    ) else (
+      echo [INFO] La matriz oficial de torch ya esta lista para !TORCH_TARGET_LABEL!.
+    )
+
+    if "!HAS_NVIDIA!"=="1" (
+      set "TORCH_GPU_COMPAT_OK=0"
+      ".venv\Scripts\python.exe" -c "import sys,torch; arches=set(torch.cuda.get_arch_list()) if torch.cuda.is_available() else set(); count=torch.cuda.device_count() if torch.cuda.is_available() else 0; ok=any((not arches) or (f'sm_{torch.cuda.get_device_properties(i).major}{torch.cuda.get_device_properties(i).minor}' in arches) for i in range(count)); sys.exit(0 if ok else 1)" >nul 2>nul
+      if not errorlevel 1 set "TORCH_GPU_COMPAT_OK=1"
+      if "!TORCH_GPU_COMPAT_OK!"=="0" (
+        echo [WARN] El build oficial instalado sigue sin poder usar esta GPU con el torch actual.
+        echo [WARN] El daemon debera anunciarse como runtime real en CPU, no como GPU real.
       )
     )
   )
 )
 
 set "PORT_PID="
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%ENGINE_PORT% .*LISTENING"') do set "PORT_PID=%%p"
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%ENGINE_PORT% .*LISTENING"') do if not defined PORT_PID set "PORT_PID=%%p"
 if defined PORT_PID (
-  echo [INFO] Ya hay un proceso escuchando en 127.0.0.1:%ENGINE_PORT% ^(PID !PORT_PID!^).
-  echo [INFO] Si es el motor local, puedes usar esa instancia y cerrar esta ventana.
-  exit /b 0
+  set "ENGINE_HEALTH_OK=0"
+  powershell -NoProfile -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:%ENGINE_PORT%/health' -Method Get -TimeoutSec 2; if ($r.status -eq 'ok' -and $r.service -eq 'studio-voice-local-engine') { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>nul
+  if not errorlevel 1 set "ENGINE_HEALTH_OK=1"
+
+  if "!ENGINE_HEALTH_OK!"=="1" (
+    echo [INFO] Ya hay un proceso del motor local escuchando en 127.0.0.1:%ENGINE_PORT% ^(PID !PORT_PID!^).
+    echo [INFO] Puedes usar esa instancia y cerrar esta ventana.
+    exit /b 0
+  )
+
+  echo [ERROR] El puerto 127.0.0.1:%ENGINE_PORT% esta ocupado por otro proceso ^(PID !PORT_PID!^).
+  echo [ERROR] Cierra ese proceso o cambia LOCAL_ENGINE_PORT y reintenta.
+  exit /b 1
 )
 
 echo [INFO] Starting Studio Voice Local Engine...

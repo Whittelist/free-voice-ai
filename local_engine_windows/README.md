@@ -1,6 +1,12 @@
-# Studio Voice Local Engine (Windows MVP)
+# Studio Voice Local Engine (Windows)
 
 Motor local para `Modo Pro` con API en localhost y control mediante ventana visible.
+
+Estado de esta fase:
+
+1. Flujo principal soportado y validado: `Windows + Chrome/Edge + ZIP launcher`.
+2. No pretendemos cubrir todos los entornos en esta etapa.
+3. Si hay fallo fuera del entorno soportado, priorizamos captura de logs y correccion iterativa.
 
 ## Objetivo
 
@@ -8,7 +14,7 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
 2. Evitar enviar audio/texto a servidores para inferencia Pro.
 3. Aportar confianza: al cerrar la ventana se detiene el servicio local.
 
-## Caracteristicas del MVP
+## Caracteristicas actuales
 
 1. UI minima con estado, logs y token local.
 2. API FastAPI en `http://127.0.0.1:57641`.
@@ -16,13 +22,17 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
    - token local obligatorio en endpoints privados.
    - validacion de `Origin` por allowlist.
 4. Flujo de modelo:
-   - `download` bajo demanda.
+   - `prepare` bajo demanda para precalentar el backend real de Chatterbox.
    - `load` / `unload`.
 5. Backend de inferencia:
-   - `auto` (default): intenta Chatterbox real y cae a `mock` si faltan dependencias.
+   - `auto` (default): intenta Chatterbox real y clasifica el runtime como `real_gpu`, `real_cpu`, `mock` o `disabled_frozen`.
    - `chatterbox`: fuerza backend real.
    - `mock`: audio sintetico para depuracion.
-5. Endpoints:
+6. TTS/Clonacion:
+   - TTS usa referencia por defecto para `es` y `en` cuando no subes audio.
+   - El texto largo se segmenta en bloques de hasta `300` caracteres y luego se cose.
+   - La referencia de usuario se normaliza a `24 kHz` mono y se limita a `30` segundos.
+7. Endpoints:
    - `GET /health`
    - `GET /version`
    - `GET /capabilities`
@@ -36,24 +46,57 @@ Motor local para `Modo Pro` con API en localhost y control mediante ventana visi
 
 Recomendacion para clonacion:
 
-1. Chatterbox Turbo indica en su pagina oficial que `5 seconds of reference audio` son suficientes.
-2. El repo oficial usa ejemplos en `.wav` y muestras de referencia de `5-10` segundos.
-3. Este motor normaliza el audio de referencia, quita silencio y usa solo hasta `5` segundos limpios.
-4. El motor rechaza audio de referencia demasiado grande para evitar bloqueos por memoria.
+1. El repo oficial usa muestras cortas y limpias; `3-10` segundos suele funcionar bien.
+2. Si la referencia esta en otro idioma que el texto de salida, conviene probar `cfg_weight=0.0`.
+3. El motor normaliza el audio de referencia a `24 kHz` mono.
+4. Limites duros: `20 MB` y `30` segundos tras normalizar.
 
-## Quickstart (desarrollo)
-
-```powershell
-.\local_engine_windows\run_local_engine.bat
-```
-
-## Build de release para `.exe` (Windows)
-
-Desde `local_engine_windows`:
+## Quickstart
 
 ```powershell
-.\build_windows.ps1
+.\install_local_engine.ps1
 ```
+
+## Flujo publico recomendado (`ZIP + launcher portable`)
+
+1. Build del ZIP de release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_portable_release.ps1 -PublicWebUrl "https://TU-DOMINIO"
+```
+
+2. Publica `studio-voice-local-windows-preview.zip` en GitHub Releases.
+3. Usuario final ejecuta:
+   - `Install Studio Voice Local Engine.bat`
+4. Diagnostico para soporte:
+   - `Export Studio Voice Diagnostics.bat`
+   - o `powershell -ExecutionPolicy Bypass -File .\export_diagnostics.ps1`
+
+El launcher portable:
+
+1. Usa Python embebido (no depende del Python del sistema).
+2. Persiste estado en `%USERPROFILE%\.studio_voice_local`.
+3. Escribe logs en `%USERPROFILE%\.studio_voice_local\logs`.
+
+Runbook operativo (casos reales de debugging, marzo 2026):
+
+1. [`RUNBOOK_modo_pro_windows.md`](./RUNBOOK_modo_pro_windows.md)
+
+El script anterior:
+
+1. Escribe una config persistente en `%USERPROFILE%\.studio_voice_local\config.json`.
+2. Crea un acceso directo al launcher.
+3. Arranca `run_local_engine.bat`.
+
+Arranque directo del daemon:
+
+```powershell
+.\run_local_engine.bat
+```
+
+## Build de release para `.exe` (legacy)
+
+El `.exe` congelado ya no es la referencia principal del runtime Pro. La ruta prioritaria es `launcher + daemon local`.
 
 Opciones principales del script:
 
@@ -135,8 +178,8 @@ Solucion temporal para desarrollo local:
 
 Requisito recomendado para Modo Pro real:
 
-1. Python `3.11` o `3.12`.
-2. Con Python `3.14` el motor puede iniciar, pero quedara en `mock` por incompatibilidades de `torch/chatterbox`.
+1. Python `3.11`.
+2. Este runtime fija `3.11` como baseline. Si el entorno se crea con otra version, el launcher lo recrea.
 
 Alternativa manual:
 
@@ -201,6 +244,8 @@ py -3.11 -m venv .\local_engine_windows\.venv
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements.txt
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements_pro.txt
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install --no-deps chatterbox-tts==0.1.6
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 torch==2.7.0 torchaudio==2.7.0
 npm run local-engine
 ```
 
@@ -237,13 +282,14 @@ Si en Modo Pro aparece `status 500` al validar backend real y el detalle mencion
 
 Comportamiento actual:
 
-1. Si faltan recursos para backend real, el motor cambia automaticamente a `modo compatible (mock)`.
-2. En modo compatible la app sigue funcionando (genera audio), pero la clonacion real no estara disponible.
+1. Si el backend real no puede arrancar, la UI distingue explicitamente `GPU real`, `CPU real`, `mock` o `disabled_frozen`.
+2. `mock` ya no debe interpretarse como paridad con la demo ni como clonacion real.
 
 ## Parametros avanzados de inferencia (Fase C)
 
 `POST /tts` (JSON) y `POST /clone` (form-data) aceptan estos campos opcionales:
 
+1. `use_default_reference` (`POST /tts` solo, bool, default `true`)
 1. `cfg_weight` (float, rango `0.0-1.5`, default `0.5`)
 2. `exaggeration` (float, rango `0.0-2.0`, default `0.5`)
 3. `temperature` (float, rango `0.1-2.0`, default `0.8`)
@@ -276,17 +322,61 @@ Si se envia `seed`, el motor fija la semilla de `torch` para ese request y mejor
    - `auto` (default)
    - `chatterbox`
    - `mock`
-7. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_BYTES`:
+7. `LOCAL_ENGINE_GPU_DEVICE_POLICY`:
+   - `auto` (default): selecciona automaticamente la GPU CUDA con mas VRAM.
+   - `max_vram`: igual que `auto`.
+   - `first`: fuerza `cuda:0`.
+8. `LOCAL_ENGINE_CUDA_DEVICE_INDEX`:
+   - vacio (default): usa politica automatica.
+   - numero entero (`0`, `1`, ...): fuerza `cuda:<index>` si existe.
+   - si el indice no existe, el motor registra warning y vuelve a `auto`.
+9. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_BYTES`:
    - Limite duro para el audio de referencia en `POST /clone`.
    - Default: `20971520` (`20 MB`).
-8. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_SECONDS`:
+10. `LOCAL_ENGINE_MAX_REFERENCE_AUDIO_SECONDS`:
    - Duracion maxima del fragmento limpio que usa el motor tras normalizar la referencia.
-   - Default: `5.0`.
-9. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
+   - Default: `30.0`.
+11. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
    - `1` para saltar instalacion de dependencias Pro en el `.bat`.
+12. `LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL`:
+   - `0`/vacio (default): asegura la matriz oficial de `torch==2.7.0` + `torchaudio==2.7.0`.
+   - Si detecta NVIDIA, usa `cu128`.
+   - Si no hay NVIDIA o el build oficial no soporta la GPU actual, el daemon se anuncia como `real_cpu`.
+   - `1`: desactiva esa instalacion automatica.
+13. `LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES`:
+   - `0`/vacio (default): el motor fuerza `CUDA_VISIBLE_DEVICES=0` por estabilidad en entornos multi-GPU (evita crashes al tocar GPUs legacy).
+   - `1`: respeta exactamente el valor heredado de `CUDA_VISIBLE_DEVICES`.
+14. `LOCAL_ENGINE_PIN_FIRST_CUDA_DEVICE`:
+   - `1`/vacio (default): si no hay `CUDA_VISIBLE_DEVICES`, fija `0` por estabilidad.
+   - `0`: no fuerza `CUDA_VISIBLE_DEVICES` cuando no viene definido.
+15. `LOCAL_ENGINE_ALLOW_FROZEN_CUDA`:
+   - `0`/vacio (default): en `.exe` empaquetado se desactiva CUDA por estabilidad.
+   - `1`: fuerza uso de CUDA tambien en `.exe` (puede crashear segun driver/GPU).
+16. `LOCAL_ENGINE_ALLOW_FROZEN_REAL_BACKEND`:
+   - `0`/vacio (default): en `.exe` empaquetado se desactiva el backend real y se usa `mock` para evitar crashes nativos (`c10.dll`).
+   - `1`: fuerza backend real en `.exe` (experimental/inestable).
+
+Diagnostico de hardware para bug fixing:
+
+1. El motor registra en logs:
+   - version de `torch`
+   - build CUDA de `torch`
+   - si `torch.cuda.is_available()`
+   - numero de GPUs CUDA detectadas
+   - nombre/VRAM/capability por GPU
+   - dispositivo final elegido y motivo (`reason`)
+2. `GET /capabilities` ahora incluye:
+   - `real_backend_torch_info`
+   - `real_backend_cuda_devices`
+   - `real_backend_cuda_index`
+   - `real_backend_device_reason`
 
 ## Notas
 
 1. Este MVP prioriza arquitectura, seguridad local y experiencia de producto.
-2. Si `chatterbox-tts` y dependencias estan instaladas, el daemon usa inferencia real.
-3. Si faltan dependencias, entra en `mock` y la UI web lo muestra como advertencia.
+2. Si `chatterbox-tts` y dependencias estan instaladas, el daemon usa inferencia real de Chatterbox.
+3. Harness de comparacion con upstream:
+
+```powershell
+.\.venv\Scripts\python.exe .\compare_upstream.py --text "Hola mundo" --language es
+```
