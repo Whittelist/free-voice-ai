@@ -3,6 +3,8 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+set "STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR=%STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR%"
+if not defined STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR set "STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR=1"
 set "BOOTSTRAP_SENTINEL=.venv\.bootstrap_done"
 set "PRO_SENTINEL=.venv\.pro_deps_done"
 set "CHATTERBOX_PACKAGE=chatterbox-tts==0.1.6"
@@ -55,7 +57,7 @@ if not defined PY_CMD (
   echo [ERROR] Este motor fija Python 3.11 como baseline del runtime local.
   echo [ERROR] Instala Python 3.11 y marca "Add python.exe to PATH".
   echo [ERROR] Consejo: ejecuta "py -0p" para ver runtimes detectados.
-  exit /b 1
+  goto :error_exit
 )
 
 if not defined PY_VER (
@@ -75,14 +77,14 @@ if not exist ".venv\Scripts\python.exe" (
   if errorlevel 1 (
     echo [ERROR] Fallo creando el entorno virtual.
     echo [ERROR] Si cancelaste antes, borra ".venv" y reintenta.
-    exit /b 1
+    goto :error_exit
   )
 )
 
 if not exist ".venv\Scripts\python.exe" (
   echo [ERROR] El entorno virtual parece corrupto ^(falta .venv\Scripts\python.exe^).
   echo [ERROR] Borra la carpeta ".venv" y ejecuta de nuevo.
-  exit /b 1
+  goto :error_exit
 )
 
 set "VENV_PY_VER="
@@ -99,12 +101,12 @@ if defined VENV_PY_VER (
       echo [ERROR] No se pudo eliminar .venv porque esta en uso.
       echo [ERROR] Cierra la ventana del motor local y cualquier terminal con ^(.venv^) activa.
       echo [ERROR] Luego reintenta este comando.
-      exit /b 1
+      goto :error_exit
     )
     %PY_CMD% -m venv .venv
     if errorlevel 1 (
       echo [ERROR] Fallo recreando .venv con Python !PY_VER!.
-      exit /b 1
+      goto :error_exit
     )
     del /f /q "%BOOTSTRAP_SENTINEL%" >nul 2>nul
     del /f /q "%PRO_SENTINEL%" >nul 2>nul
@@ -138,14 +140,14 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
   if errorlevel 1 (
     echo [ERROR] Fallo al actualizar pip.
     echo [ERROR] Si ves "Operation cancelled by user", vuelve a ejecutar y no cierres la ventana.
-    exit /b 1
+    goto :error_exit
   )
 
   echo [INFO] Installing dependencies...
   ".venv\Scripts\python.exe" -m pip install -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] Fallo instalando dependencias.
-    exit /b 1
+    goto :error_exit
   )
 
   if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
@@ -181,7 +183,7 @@ if "!BASE_DEPS_OK!"=="0" (
   ".venv\Scripts\python.exe" -m pip install -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] No se pudieron recuperar dependencias base.
-    exit /b 1
+    goto :error_exit
   )
 )
 
@@ -281,15 +283,33 @@ if defined PORT_PID (
   if "!ENGINE_HEALTH_OK!"=="1" (
     echo [INFO] Ya hay un proceso del motor local escuchando en 127.0.0.1:%ENGINE_PORT% ^(PID !PORT_PID!^).
     echo [INFO] Puedes usar esa instancia y cerrar esta ventana.
-    exit /b 0
+    goto :success_exit
   )
 
   echo [ERROR] El puerto 127.0.0.1:%ENGINE_PORT% esta ocupado por otro proceso ^(PID !PORT_PID!^).
   echo [ERROR] Cierra ese proceso o cambia LOCAL_ENGINE_PORT y reintenta.
-  exit /b 1
+  goto :error_exit
 )
 
 echo [INFO] Starting Studio Voice Local Engine...
 ".venv\Scripts\python.exe" app.py
+if errorlevel 1 (
+  echo [ERROR] El proceso local finalizo con error.
+  goto :error_exit
+)
 
-endlocal
+goto :success_exit
+
+:error_exit
+echo [INFO] Puedes copiar este log en pantalla y reportarlo en soporte.
+echo [INFO] En la web de Studio Voice pulsa "Reportar bug / soporte" y pega este error.
+echo [INFO] Opcional facil: ejecuta "Exportar Diagnostico Studio Voice.bat" y adjunta el ZIP de diagnostico.
+if /i not "%STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR%"=="0" (
+  echo.
+  echo [INFO] Pulsa una tecla para cerrar esta ventana...
+  pause >nul
+)
+endlocal & exit /b 1
+
+:success_exit
+endlocal & exit /b 0

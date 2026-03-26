@@ -3,6 +3,8 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+set "STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR=%STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR%"
+if not defined STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR set "STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR=1"
 set "ENGINE_PORT=%LOCAL_ENGINE_PORT%"
 if not defined ENGINE_PORT set "ENGINE_PORT=57641"
 
@@ -25,7 +27,7 @@ set "PROMPTS_DST=%DATA_DIR%\default_prompts"
 if not exist "%EMBED_PY%" (
   echo [ERROR] No se encontro Python embebido en "%EMBED_PY%".
   echo [ERROR] Reextrae el ZIP oficial y ejecuta de nuevo este launcher.
-  exit /b 1
+  goto :error_exit
 )
 
 if /i not "%LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES%"=="1" (
@@ -67,13 +69,13 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
       powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%GET_PIP_PY%'"
       if errorlevel 1 (
         echo [ERROR] No se pudo descargar get-pip.py.
-        exit /b 1
+        goto :error_exit
       )
     )
     "%EMBED_PY%" "%GET_PIP_PY%"
     if errorlevel 1 (
       echo [ERROR] No se pudo inicializar pip en el runtime portable.
-      exit /b 1
+      goto :error_exit
     )
   )
 
@@ -81,14 +83,14 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
   "%EMBED_PY%" -m pip install --upgrade pip wheel "setuptools<81"
   if errorlevel 1 (
     echo [ERROR] Fallo al actualizar pip en runtime portable.
-    exit /b 1
+    goto :error_exit
   )
 
   echo [INFO] Instalando dependencias base...
   "%EMBED_PY%" -m pip install -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] Fallo instalando requirements.txt.
-    exit /b 1
+    goto :error_exit
   )
 
   if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
@@ -121,7 +123,7 @@ if "!BASE_DEPS_OK!"=="0" (
   "%EMBED_PY%" -m pip install -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] No se pudieron recuperar dependencias base.
-    exit /b 1
+    goto :error_exit
   )
 )
 
@@ -191,16 +193,35 @@ if defined PORT_PID (
 
   if "!ENGINE_HEALTH_OK!"=="1" (
     echo [INFO] Ya hay un motor local escuchando en 127.0.0.1:%ENGINE_PORT% ^(PID !PORT_PID!^).
-    exit /b 0
+    goto :success_exit
   )
 
   echo [ERROR] El puerto 127.0.0.1:%ENGINE_PORT% esta ocupado por otro proceso ^(PID !PORT_PID!^).
   echo [ERROR] Cierra ese proceso o cambia LOCAL_ENGINE_PORT y reintenta.
-  exit /b 1
+  goto :error_exit
 )
 
 set "LOCAL_ENGINE_DATA_DIR=%DATA_DIR%"
 echo [INFO] Starting Studio Voice Local Engine (portable)...
 "%EMBED_PY%" app.py
+if errorlevel 1 (
+  echo [ERROR] El proceso local finalizo con error.
+  goto :error_exit
+)
 
-endlocal
+goto :success_exit
+
+:error_exit
+echo [INFO] Puedes copiar este log en pantalla y reportarlo en soporte.
+echo [INFO] Si existe, adjunta tambien logs desde: "%DATA_DIR%\logs"
+echo [INFO] En la web de Studio Voice pulsa "Reportar bug / soporte" y pega este error.
+echo [INFO] Opcional facil: ejecuta "Exportar Diagnostico Studio Voice.bat" y adjunta el ZIP.
+if /i not "%STUDIO_VOICE_KEEP_CONSOLE_OPEN_ON_ERROR%"=="0" (
+  echo.
+  echo [INFO] Pulsa una tecla para cerrar esta ventana...
+  pause >nul
+)
+endlocal & exit /b 1
+
+:success_exit
+endlocal & exit /b 0

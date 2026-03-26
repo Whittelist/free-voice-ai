@@ -131,9 +131,9 @@ function App() {
   const [engineCapabilities, setEngineCapabilities] = useState<EngineCapabilities | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
   const [isPreparingPro, setIsPreparingPro] = useState(false);
-  const [isInstallerDownloadStarting, setIsInstallerDownloadStarting] = useState(false);
   const lastLoggedDownloadErrorRef = useRef<string | null>(null);
   const lastLoggedDownloadStageRef = useRef<string | null>(null);
+  const installerDownloadGuardRef = useRef<number>(0);
 
   const workerRef = useRef<Worker | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -861,20 +861,14 @@ function App() {
       ? "Modo rapido: ejecucion 100% en navegador."
       : "Modo Pro: daemon local para acercarse a la ruta oficial de Chatterbox.";
 
-  const openExternalUrl = useCallback((url: string) => {
-    if (typeof window === "undefined") return;
-    const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (!opened) {
-      window.location.href = url;
+  const handleInstallerLinkClick = useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
+    const now = Date.now();
+    if (now - installerDownloadGuardRef.current < 3000) {
+      event.preventDefault();
+      return;
     }
+    installerDownloadGuardRef.current = now;
   }, []);
-
-  const handleInstallerDownloadClick = useCallback(() => {
-    if (isInstallerDownloadStarting) return;
-    setIsInstallerDownloadStarting(true);
-    openExternalUrl(LOCAL_ENGINE_WINDOWS_INSTALLER_URL);
-    window.setTimeout(() => setIsInstallerDownloadStarting(false), 3500);
-  }, [isInstallerDownloadStarting, openExternalUrl]);
 
   return (
     <div className="app-container">
@@ -953,15 +947,15 @@ function App() {
                   ejecutar la parte pesada fuera del navegador. Si no hay GPU real, no esperes paridad completa con la
                   demo oficial.
                 </p>
-                <button
-                  type="button"
+                <a
                   className="btn-secondary"
-                  onClick={handleInstallerDownloadClick}
-                  disabled={isInstallerDownloadStarting}
+                  href={LOCAL_ENGINE_WINDOWS_INSTALLER_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={handleInstallerLinkClick}
                 >
-                  <Download size={16} />{" "}
-                  {isInstallerDownloadStarting ? "Abriendo descarga..." : "Descargar ZIP launcher Windows"}
-                </button>
+                  <Download size={16} /> Descargar ZIP launcher Windows
+                </a>
                 <a className="btn-secondary" href={SUPPORT_PAGE_URL}>
                   <AlertTriangle size={16} /> Reportar bug / soporte
                 </a>

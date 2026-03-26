@@ -16,6 +16,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install_local_engine.p
 
 if errorlevel 1 (
   echo [ERROR] La instalacion fallo.
+  echo [INFO] La ventana se queda abierta para que puedas copiar el error.
+  echo [INFO] Si existe, adjunta tambien logs desde: %USERPROFILE%\.studio_voice_local\logs
+  echo [INFO] Entra en: %PUBLIC_WEB_URL%/support
+  echo [INFO] O abre la web y pulsa "Reportar bug / soporte", pega el error y te ayudamos.
+  if /i not "%STUDIO_VOICE_SKIP_PAUSE_ON_INSTALL_ERROR%"=="1" (
+    echo.
+    pause
+  )
   exit /b 1
 )
 

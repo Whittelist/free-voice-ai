@@ -36,8 +36,9 @@ $packageName = "studio-voice-local-windows-preview"
 $buildRoot = Join-Path $PSScriptRoot "build\portable_release"
 $cacheDir = Join-Path $buildRoot "cache"
 $stagingRoot = Join-Path $buildRoot $packageName
-$runtimeDir = Join-Path $stagingRoot "runtime\python311"
-$assetsPromptDir = Join-Path $stagingRoot "assets\default_prompts"
+$engineRoot = Join-Path $stagingRoot "engine"
+$runtimeDir = Join-Path $engineRoot "runtime\python311"
+$assetsPromptDir = Join-Path $engineRoot "assets\default_prompts"
 $pythonZipName = "python-$PythonEmbedVersion-embed-amd64.zip"
 $pythonZipPath = Join-Path $cacheDir $pythonZipName
 $pythonUrl = "https://www.python.org/ftp/python/$PythonEmbedVersion/$pythonZipName"
@@ -88,7 +89,7 @@ foreach ($file in $filesToCopy) {
   if (-not (Test-Path $src)) {
     throw "Falta archivo requerido para release: $file"
   }
-  Copy-Item -Path $src -Destination (Join-Path $stagingRoot $file) -Force
+  Copy-Item -Path $src -Destination (Join-Path $engineRoot $file) -Force
 }
 
 New-Item -ItemType Directory -Path $assetsPromptDir -Force | Out-Null
@@ -104,10 +105,67 @@ if (-not $SkipPromptDownload) {
   }
 }
 
-$installBatPath = Join-Path $stagingRoot "Install Studio Voice Local Engine.bat"
+$installBatPath = Join-Path $engineRoot "Install Studio Voice Local Engine.bat"
 $installContent = Get-Content -Raw $installBatPath
 $installContent = $installContent.Replace("https://your-domain.example.com", $PublicWebUrl)
 Set-Content -Path $installBatPath -Value $installContent -Encoding ASCII
+
+$launcherInstallPath = Join-Path $stagingRoot "Instalar Studio Voice Local Engine.bat"
+$launcherInstallContent = @'
+@echo off
+setlocal
+cd /d "%~dp0"
+
+set "STUDIO_VOICE_SKIP_PAUSE_ON_INSTALL_ERROR=1"
+call "%~dp0engine\Install Studio Voice Local Engine.bat"
+set "EXIT_CODE=%ERRORLEVEL%"
+if not "%EXIT_CODE%"=="0" (
+  echo [ERROR] La instalacion termino con errores.
+  echo [INFO] Puedes copiar el error de esta ventana.
+  echo [INFO] Logs ^(si existen^): %USERPROFILE%\.studio_voice_local\logs
+  echo [INFO] Abre la web de Studio Voice y pulsa "Reportar bug / soporte".
+  echo [INFO] Si puedes, adjunta tambien el ZIP de "Exportar Diagnostico Studio Voice.bat".
+  echo.
+  pause
+)
+exit /b %EXIT_CODE%
+'@
+Set-Content -Path $launcherInstallPath -Value $launcherInstallContent -Encoding ASCII
+
+$launcherDiagPath = Join-Path $stagingRoot "Exportar Diagnostico Studio Voice.bat"
+$launcherDiagContent = @'
+@echo off
+setlocal
+cd /d "%~dp0"
+
+call "%~dp0engine\Export Studio Voice Diagnostics.bat"
+set "EXIT_CODE=%ERRORLEVEL%"
+if not "%EXIT_CODE%"=="0" (
+  echo [ERROR] La exportacion de diagnostico termino con errores.
+  echo.
+  pause
+)
+exit /b %EXIT_CODE%
+'@
+Set-Content -Path $launcherDiagPath -Value $launcherDiagContent -Encoding ASCII
+
+$readmePath = Join-Path $stagingRoot "README_PRIMERO.txt"
+$readmeContent = @'
+Studio Voice Local Engine - Windows preview
+===========================================
+
+1) Extrae TODO el ZIP en una carpeta local (no lo ejecutes dentro del ZIP).
+2) Abre "Instalar Studio Voice Local Engine.bat".
+3) Sigue los pasos en pantalla. Si falla, la ventana se queda abierta para copiar errores.
+
+Si necesitas soporte:
+- Ejecuta "Exportar Diagnostico Studio Voice.bat"
+- Adjunta el ZIP generado junto con captura del error.
+
+Contenido tecnico:
+- engine\ (runtime portable + scripts internos)
+'@
+Set-Content -Path $readmePath -Value $readmeContent -Encoding ASCII
 
 $manifest = [ordered]@{
   package_name = $packageName
@@ -116,9 +174,9 @@ $manifest = [ordered]@{
   public_web_url = $PublicWebUrl
   python_embeddable_version = $PythonEmbedVersion
   entrypoints = @(
-    "Install Studio Voice Local Engine.bat",
-    "run_portable_engine.bat",
-    "Export Studio Voice Diagnostics.bat"
+    "Instalar Studio Voice Local Engine.bat",
+    "README_PRIMERO.txt",
+    "Exportar Diagnostico Studio Voice.bat"
   )
 }
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $stagingRoot "manifest.json") -Encoding UTF8
@@ -140,7 +198,7 @@ $zipPath = Join-Path $OutputDir "$packageName.zip"
 if (Test-Path $zipPath) {
   Remove-Item -Path $zipPath -Force
 }
-Compress-Archive -Path (Join-Path $stagingRoot "*") -DestinationPath $zipPath -Force
+Compress-Archive -Path $stagingRoot -DestinationPath $zipPath -Force
 
 Write-Host "[INFO] ZIP generado: $zipPath"
 Write-Host "[INFO] Manifest: $(Join-Path $stagingRoot 'manifest.json')"
