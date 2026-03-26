@@ -60,6 +60,9 @@ const PRO_ADVANCED_DEFAULTS = {
 const LOCAL_ENGINE_WINDOWS_INSTALLER_URL =
   (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL as string | undefined) ??
   "https://github.com/Whittelist/free-voice-ai/releases/latest/download/studio-voice-local-windows-preview.zip";
+const LOCAL_ENGINE_WINDOWS_RELEASES_URL =
+  (import.meta.env.VITE_LOCAL_ENGINE_WINDOWS_RELEASES_URL as string | undefined) ??
+  "https://github.com/Whittelist/free-voice-ai/releases/latest";
 const SUPPORT_PAGE_URL = "/support";
 const PRO_DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   queued: "en cola",
@@ -941,6 +944,9 @@ function App() {
                   rel="noreferrer"
                 >
                   <Download size={16} /> Descargar ZIP launcher Windows
+                </a>
+                <a className="btn-secondary" href={LOCAL_ENGINE_WINDOWS_RELEASES_URL} target="_blank" rel="noreferrer">
+                  <Download size={16} /> Si da Not Found, abrir Releases
                 </a>
                 <a className="btn-secondary" href={SUPPORT_PAGE_URL}>
                   <AlertTriangle size={16} /> Reportar bug / soporte

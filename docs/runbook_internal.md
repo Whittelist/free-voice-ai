@@ -28,7 +28,7 @@ Launcher/package:
    `studio-voice-local-windows-preview.zip`.
 4. Deploy web a Railway.
 5. Verifica que `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL` apunta a:
-   `https://github.com/<repo>/releases/latest/download/studio-voice-local-windows-preview.zip`
+   `https://github.com/Whittelist/free-voice-ai/releases/latest/download/studio-voice-local-windows-preview.zip`
 
 ## Validacion minima post-deploy
 

@@ -46,8 +46,9 @@ Variables opcionales:
 1. `VITE_ENABLE_PRO_MODE=true|false` (default: `true`)
 2. `VITE_LOCAL_ENGINE_URL=http://127.0.0.1:57641`
 3. `VITE_LOCAL_ENGINE_WINDOWS_INSTALLER_URL` (URL del ZIP launcher Windows)
-4. `VITE_PUBLIC_APP_ORIGIN` (origen web publico esperado)
-5. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
+4. `VITE_LOCAL_ENGINE_WINDOWS_RELEASES_URL` (fallback a pagina de Releases si el ZIP no existe aun)
+5. `VITE_PUBLIC_APP_ORIGIN` (origen web publico esperado)
+6. En `Modo Pro`, la URL local debe ser `http://...` (no `https://`).
 
 ## Deploy en Railway
 
