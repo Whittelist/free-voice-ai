@@ -18,6 +18,28 @@ set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu128"
 set "TORCH_GPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
 set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
 set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+set "CURRENT_ENGINE_DIR=%cd%"
+set "PORTABLE_ENGINE_HOME=%LOCALAPPDATA%\StudioVoiceLocal\engine"
+if /i not "%CURRENT_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
+  if /i not "%STUDIO_VOICE_REHOMED%"=="1" (
+    if exist "%PORTABLE_ENGINE_HOME%\run_portable_engine.bat" (
+      echo [INFO] Instalacion local detectada en ruta corta: "%PORTABLE_ENGINE_HOME%"
+      echo [INFO] Reejecutando launcher desde la instalacion local...
+      set "STUDIO_VOICE_REHOMED=1"
+      call "%PORTABLE_ENGINE_HOME%\run_portable_engine.bat"
+      exit /b %ERRORLEVEL%
+    )
+  )
+)
+
+set "ENGINE_PATH_LEN=0"
+for /f %%L in ('powershell -NoProfile -Command "$p=(Get-Location).Path; $p.Length"') do set "ENGINE_PATH_LEN=%%L"
+if %ENGINE_PATH_LEN% GTR 95 (
+  echo [WARN] Ruta de launcher muy larga ^(%ENGINE_PATH_LEN% caracteres^).
+  echo [WARN] Puede provocar WinError 206 en algunas dependencias.
+  echo [WARN] Recomendado: ejecutar "Install Studio Voice Local Engine.bat" para moverlo a ruta corta.
+)
+
 echo [INFO] Entorno aislado: este launcher usa runtime embebido en ".\\runtime\\python311".
 echo [INFO] No modifica el Python global ni paquetes del sistema.
 if /i "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
