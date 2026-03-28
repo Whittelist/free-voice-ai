@@ -106,16 +106,16 @@ function Test-EngineHealthy {
 
 function Refresh-UiState {
   $healthy = Test-EngineHealthy
-  $pid = Get-ListeningPid
+  $enginePid = Get-ListeningPid
   $token = Get-Token
 
   $script:tokenBox.Text = $token
 
   if ($healthy) {
-    $script:statusLabel.Text = "Estado: conectado en $($script:engineUrl) (PID $pid)"
+    $script:statusLabel.Text = "Estado: conectado en $($script:engineUrl) (PID $enginePid)"
     $script:statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(20, 120, 20)
-  } elseif ($pid) {
-    $script:statusLabel.Text = "Estado: proceso detectado (PID $pid), esperando health..."
+  } elseif ($enginePid) {
+    $script:statusLabel.Text = "Estado: proceso detectado (PID $enginePid), esperando health..."
     $script:statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(160, 120, 0)
   } else {
     $script:statusLabel.Text = "Estado: detenido"
@@ -123,7 +123,7 @@ function Refresh-UiState {
   }
 
   $script:startBtn.Enabled = -not $healthy
-  $script:stopBtn.Enabled = [bool]$pid
+  $script:stopBtn.Enabled = [bool]$enginePid
   $script:copyBtn.Enabled = -not [string]::IsNullOrWhiteSpace($token)
 }
 
@@ -150,88 +150,162 @@ function Open-WebUrl {
   }
 }
 
+$colorBackground = [System.Drawing.ColorTranslator]::FromHtml("#F3F5F7")
+$colorCard = [System.Drawing.Color]::White
+$colorBrand = [System.Drawing.ColorTranslator]::FromHtml("#0F6CBD")
+$colorTextPrimary = [System.Drawing.ColorTranslator]::FromHtml("#1B1A19")
+$colorTextSecondary = [System.Drawing.ColorTranslator]::FromHtml("#605E5C")
+$colorBorder = [System.Drawing.ColorTranslator]::FromHtml("#E1DFDD")
+
+function Set-ButtonStyle {
+  param(
+    [System.Windows.Forms.Button]$Button,
+    [System.Drawing.Color]$BackColor,
+    [System.Drawing.Color]$ForeColor,
+    [switch]$Outlined
+  )
+  $Button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  $Button.BackColor = $BackColor
+  $Button.ForeColor = $ForeColor
+  $Button.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Semibold)
+  if ($Outlined) {
+    $Button.FlatAppearance.BorderSize = 1
+    $Button.FlatAppearance.BorderColor = [System.Drawing.ColorTranslator]::FromHtml("#C8C6C4")
+  } else {
+    $Button.FlatAppearance.BorderSize = 0
+  }
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Studio Voice Connector"
 $form.StartPosition = "CenterScreen"
-$form.Size = New-Object System.Drawing.Size(760, 560)
-$form.MinimumSize = New-Object System.Drawing.Size(760, 560)
+$form.Size = New-Object System.Drawing.Size(800, 620)
+$form.MinimumSize = New-Object System.Drawing.Size(800, 620)
+$form.BackColor = $colorBackground
+$form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+
+$headerPanel = New-Object System.Windows.Forms.Panel
+$headerPanel.Dock = [System.Windows.Forms.DockStyle]::Top
+$headerPanel.Height = 92
+$headerPanel.BackColor = $colorBrand
+$form.Controls.Add($headerPanel)
 
 $titleLabel = New-Object System.Windows.Forms.Label
 $titleLabel.Text = "Studio Voice Connector"
-$titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
-$titleLabel.Location = New-Object System.Drawing.Point(18, 16)
+$titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 15, [System.Drawing.FontStyle]::Bold)
+$titleLabel.ForeColor = [System.Drawing.Color]::White
+$titleLabel.Location = New-Object System.Drawing.Point(20, 16)
 $titleLabel.AutoSize = $true
-$form.Controls.Add($titleLabel)
+$headerPanel.Controls.Add($titleLabel)
+
+$subtitleLabel = New-Object System.Windows.Forms.Label
+$subtitleLabel.Text = "Instala, inicia y conecta el motor local en una sola ventana."
+$subtitleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$subtitleLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#EAF2FB")
+$subtitleLabel.Location = New-Object System.Drawing.Point(22, 50)
+$subtitleLabel.AutoSize = $true
+$headerPanel.Controls.Add($subtitleLabel)
+
+$statusCard = New-Object System.Windows.Forms.Panel
+$statusCard.Location = New-Object System.Drawing.Point(20, 106)
+$statusCard.Size = New-Object System.Drawing.Size(744, 48)
+$statusCard.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$statusCard.BackColor = $colorCard
+$form.Controls.Add($statusCard)
 
 $script:statusLabel = New-Object System.Windows.Forms.Label
 $script:statusLabel.Text = "Estado: iniciando..."
-$script:statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular)
-$script:statusLabel.Location = New-Object System.Drawing.Point(20, 52)
-$script:statusLabel.Size = New-Object System.Drawing.Size(700, 24)
-$form.Controls.Add($script:statusLabel)
+$script:statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Semibold)
+$script:statusLabel.Location = New-Object System.Drawing.Point(14, 12)
+$script:statusLabel.Size = New-Object System.Drawing.Size(712, 24)
+$statusCard.Controls.Add($script:statusLabel)
+
+$actionsCard = New-Object System.Windows.Forms.Panel
+$actionsCard.Location = New-Object System.Drawing.Point(20, 166)
+$actionsCard.Size = New-Object System.Drawing.Size(744, 130)
+$actionsCard.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$actionsCard.BackColor = $colorCard
+$form.Controls.Add($actionsCard)
 
 $installBtn = New-Object System.Windows.Forms.Button
 $installBtn.Text = "Instalar / Reparar"
-$installBtn.Location = New-Object System.Drawing.Point(20, 88)
-$installBtn.Size = New-Object System.Drawing.Size(130, 34)
-$form.Controls.Add($installBtn)
+$installBtn.Location = New-Object System.Drawing.Point(14, 14)
+$installBtn.Size = New-Object System.Drawing.Size(138, 34)
+Set-ButtonStyle -Button $installBtn -BackColor $colorBrand -ForeColor ([System.Drawing.Color]::White)
+$actionsCard.Controls.Add($installBtn)
 
 $script:startBtn = New-Object System.Windows.Forms.Button
 $script:startBtn.Text = "Iniciar Motor"
-$script:startBtn.Location = New-Object System.Drawing.Point(160, 88)
-$script:startBtn.Size = New-Object System.Drawing.Size(110, 34)
-$form.Controls.Add($script:startBtn)
+$script:startBtn.Location = New-Object System.Drawing.Point(162, 14)
+$script:startBtn.Size = New-Object System.Drawing.Size(112, 34)
+Set-ButtonStyle -Button $script:startBtn -BackColor ([System.Drawing.ColorTranslator]::FromHtml("#107C10")) -ForeColor ([System.Drawing.Color]::White)
+$actionsCard.Controls.Add($script:startBtn)
 
 $script:stopBtn = New-Object System.Windows.Forms.Button
 $script:stopBtn.Text = "Detener Motor"
-$script:stopBtn.Location = New-Object System.Drawing.Point(280, 88)
-$script:stopBtn.Size = New-Object System.Drawing.Size(110, 34)
-$form.Controls.Add($script:stopBtn)
+$script:stopBtn.Location = New-Object System.Drawing.Point(284, 14)
+$script:stopBtn.Size = New-Object System.Drawing.Size(112, 34)
+Set-ButtonStyle -Button $script:stopBtn -BackColor ([System.Drawing.ColorTranslator]::FromHtml("#A4262C")) -ForeColor ([System.Drawing.Color]::White)
+$actionsCard.Controls.Add($script:stopBtn)
 
 $openWebBtn = New-Object System.Windows.Forms.Button
 $openWebBtn.Text = "Abrir Web"
-$openWebBtn.Location = New-Object System.Drawing.Point(400, 88)
-$openWebBtn.Size = New-Object System.Drawing.Size(100, 34)
-$form.Controls.Add($openWebBtn)
+$openWebBtn.Location = New-Object System.Drawing.Point(406, 14)
+$openWebBtn.Size = New-Object System.Drawing.Size(102, 34)
+Set-ButtonStyle -Button $openWebBtn -BackColor ([System.Drawing.Color]::White) -ForeColor $colorTextPrimary -Outlined
+$actionsCard.Controls.Add($openWebBtn)
 
 $diagBtn = New-Object System.Windows.Forms.Button
 $diagBtn.Text = "Exportar Diagnostico"
-$diagBtn.Location = New-Object System.Drawing.Point(510, 88)
-$diagBtn.Size = New-Object System.Drawing.Size(150, 34)
-$form.Controls.Add($diagBtn)
+$diagBtn.Location = New-Object System.Drawing.Point(518, 14)
+$diagBtn.Size = New-Object System.Drawing.Size(200, 34)
+Set-ButtonStyle -Button $diagBtn -BackColor ([System.Drawing.Color]::White) -ForeColor $colorTextPrimary -Outlined
+$actionsCard.Controls.Add($diagBtn)
 
 $tokenLabel = New-Object System.Windows.Forms.Label
 $tokenLabel.Text = "Token local:"
-$tokenLabel.Location = New-Object System.Drawing.Point(20, 144)
+$tokenLabel.ForeColor = $colorTextSecondary
+$tokenLabel.Location = New-Object System.Drawing.Point(14, 62)
 $tokenLabel.AutoSize = $true
-$form.Controls.Add($tokenLabel)
+$actionsCard.Controls.Add($tokenLabel)
 
 $script:tokenBox = New-Object System.Windows.Forms.TextBox
-$script:tokenBox.Location = New-Object System.Drawing.Point(20, 166)
+$script:tokenBox.Location = New-Object System.Drawing.Point(14, 84)
 $script:tokenBox.Size = New-Object System.Drawing.Size(600, 28)
 $script:tokenBox.ReadOnly = $true
-$form.Controls.Add($script:tokenBox)
+$actionsCard.Controls.Add($script:tokenBox)
 
 $script:copyBtn = New-Object System.Windows.Forms.Button
 $script:copyBtn.Text = "Copiar Token"
-$script:copyBtn.Location = New-Object System.Drawing.Point(630, 164)
+$script:copyBtn.Location = New-Object System.Drawing.Point(622, 82)
 $script:copyBtn.Size = New-Object System.Drawing.Size(100, 30)
-$form.Controls.Add($script:copyBtn)
+Set-ButtonStyle -Button $script:copyBtn -BackColor ([System.Drawing.ColorTranslator]::FromHtml("#E8F1FB")) -ForeColor $colorBrand
+$actionsCard.Controls.Add($script:copyBtn)
+
+$logCard = New-Object System.Windows.Forms.Panel
+$logCard.Location = New-Object System.Drawing.Point(20, 308)
+$logCard.Size = New-Object System.Drawing.Size(744, 254)
+$logCard.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$logCard.BackColor = $colorCard
+$form.Controls.Add($logCard)
 
 $logLabel = New-Object System.Windows.Forms.Label
 $logLabel.Text = "Log:"
-$logLabel.Location = New-Object System.Drawing.Point(20, 210)
+$logLabel.ForeColor = $colorTextSecondary
+$logLabel.Location = New-Object System.Drawing.Point(14, 12)
 $logLabel.AutoSize = $true
-$form.Controls.Add($logLabel)
+$logCard.Controls.Add($logLabel)
 
 $script:logBox = New-Object System.Windows.Forms.TextBox
-$script:logBox.Location = New-Object System.Drawing.Point(20, 232)
-$script:logBox.Size = New-Object System.Drawing.Size(710, 270)
+$script:logBox.Location = New-Object System.Drawing.Point(14, 34)
+$script:logBox.Size = New-Object System.Drawing.Size(712, 206)
 $script:logBox.Multiline = $true
 $script:logBox.ScrollBars = "Vertical"
 $script:logBox.ReadOnly = $true
 $script:logBox.Font = New-Object System.Drawing.Font("Consolas", 9)
-$form.Controls.Add($script:logBox)
+$script:logBox.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#FAFAFA")
+$script:logBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$logCard.Controls.Add($script:logBox)
 
 $installBtn.Add_Click({
   if (-not (Test-Path $script:installBatPath)) {
@@ -255,16 +329,16 @@ $script:startBtn.Add_Click({
 })
 
 $script:stopBtn.Add_Click({
-  $pid = Get-ListeningPid
-  if (-not $pid) {
+  $enginePid = Get-ListeningPid
+  if (-not $enginePid) {
     Add-Log "No hay proceso escuchando en puerto $($script:enginePort)."
     return
   }
   try {
-    Stop-Process -Id $pid -Force -ErrorAction Stop
-    Add-Log "Proceso detenido (PID $pid)."
+    Stop-Process -Id $enginePid -Force -ErrorAction Stop
+    Add-Log "Proceso detenido (PID $enginePid)."
   } catch {
-    Add-Log "No se pudo detener PID ${pid}: $($_.Exception.Message)"
+    Add-Log "No se pudo detener PID ${enginePid}: $($_.Exception.Message)"
   }
 })
 
