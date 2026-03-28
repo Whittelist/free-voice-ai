@@ -31,8 +31,9 @@ Ruta de soporte cuando algo no funciona:
 3. Plan anterior: [`implementation_plan.md`](./implementation_plan.md)
 4. Runbook operativo Windows (sesion real): [`local_engine_windows/RUNBOOK_modo_pro_windows.md`](./local_engine_windows/RUNBOOK_modo_pro_windows.md)
 5. Guia usuario Windows: [`docs/windows_user_guide.md`](./docs/windows_user_guide.md)
-6. FAQ troubleshooting: [`docs/troubleshooting_faq.md`](./docs/troubleshooting_faq.md)
-7. Runbook interno release/soporte: [`docs/runbook_internal.md`](./docs/runbook_internal.md)
+6. Decisiones tecnicas del launcher Windows: [`docs/windows_launcher_decisions.md`](./docs/windows_launcher_decisions.md)
+7. FAQ troubleshooting: [`docs/troubleshooting_faq.md`](./docs/troubleshooting_faq.md)
+8. Runbook interno release/soporte: [`docs/runbook_internal.md`](./docs/runbook_internal.md)
 
 ## Frontend (Vite + React)
 
@@ -130,6 +131,7 @@ Notas del runtime real:
 3. El daemon clasifica el runtime como `real_gpu`, `real_cpu`, `mock` o `disabled_frozen`.
 4. La TTS Pro usa referencias por defecto de `es/en` cuando no subes audio.
 5. El texto largo se segmenta automaticamente en bloques de hasta `300` caracteres.
+6. El instalador portable mueve automaticamente el launcher a una ruta corta en `%LOCALAPPDATA%` para evitar errores de rutas largas en Windows.
 
 Build de release (`.exe`) legacy:
 
