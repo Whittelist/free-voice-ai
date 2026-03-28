@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 set "DATA_DIR=%USERPROFILE%\.studio_voice_local"
@@ -27,14 +27,14 @@ echo [INFO] Preparando archivos descargados (unblock)... >> "%INSTALL_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%SOURCE_ENGINE_DIR%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
 
 if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
-  echo [INFO] Preparando instalacion en ruta corta (%PORTABLE_ENGINE_HOME%) para evitar errores de rutas largas...
+  echo [INFO] Preparando instalacion en ruta corta ^(%PORTABLE_ENGINE_HOME%^) para evitar errores de rutas largas...
   echo [INFO] Copiando launcher a ruta corta... >> "%INSTALL_LOG%"
   if not exist "%PORTABLE_ENGINE_HOME%" mkdir "%PORTABLE_ENGINE_HOME%" >nul 2>nul
   robocopy "%SOURCE_ENGINE_DIR%" "%PORTABLE_ENGINE_HOME%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP >nul
-  set "ROBOCOPY_EXIT=%ERRORLEVEL%"
-  echo [INFO] robocopy_exit=%ROBOCOPY_EXIT% >> "%INSTALL_LOG%"
-  if %ROBOCOPY_EXIT% GEQ 8 (
-    echo [WARN] No se pudo copiar el launcher a "%PORTABLE_ENGINE_HOME%" ^(codigo %ROBOCOPY_EXIT%^).
+  set "ROBOCOPY_EXIT=!ERRORLEVEL!"
+  echo [INFO] robocopy_exit=!ROBOCOPY_EXIT! >> "%INSTALL_LOG%"
+  if !ROBOCOPY_EXIT! GEQ 8 (
+    echo [WARN] No se pudo copiar el launcher a "%PORTABLE_ENGINE_HOME%" ^(codigo !ROBOCOPY_EXIT!^).
     echo [WARN] Se continuara desde la carpeta actual: "%SOURCE_ENGINE_DIR%".
     echo [WARN] Copia a ruta corta fallo. Se continua desde source. >> "%INSTALL_LOG%"
     if exist "%LEGACY_ENGINE_HOME%\install_local_engine.ps1" (
@@ -44,9 +44,9 @@ if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
     )
   ) else (
     set "ACTIVE_ENGINE_DIR=%PORTABLE_ENGINE_HOME%"
-    echo [INFO] Launcher copiado a: "%ACTIVE_ENGINE_DIR%"
-    echo [INFO] active_engine_dir=%ACTIVE_ENGINE_DIR% >> "%INSTALL_LOG%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%ACTIVE_ENGINE_DIR%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
+    echo [INFO] Launcher copiado a: "!ACTIVE_ENGINE_DIR!"
+    echo [INFO] active_engine_dir=!ACTIVE_ENGINE_DIR! >> "%INSTALL_LOG%"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '!ACTIVE_ENGINE_DIR!' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
   )
 )
 
@@ -79,7 +79,7 @@ if defined PUBLIC_WEB_URL (
 )
 
 if errorlevel 1 (
-  echo [ERROR] Instalador retorno errorlevel=%ERRORLEVEL% >> "%INSTALL_LOG%"
+  echo [ERROR] Instalador retorno errorlevel=!ERRORLEVEL! >> "%INSTALL_LOG%"
   echo [ERROR] La instalacion fallo.
   echo [INFO] La ventana se queda abierta para que puedas copiar el error.
   echo [INFO] Si existe, adjunta tambien logs desde: %USERPROFILE%\.studio_voice_local\logs
