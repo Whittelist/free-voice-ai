@@ -14,6 +14,16 @@ set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
 set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
 set "ENGINE_PORT=%LOCAL_ENGINE_PORT%"
 if not defined ENGINE_PORT set "ENGINE_PORT=57641"
+echo [INFO] Entorno aislado: este launcher usa solo ".venv" dentro de esta carpeta.
+echo [INFO] No modifica el Python global ni paquetes del sistema.
+if /i "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
+  echo [WARN] LOCAL_ENGINE_SKIP_PRO_DEPS=1 ignorado para mantener instalacion determinista.
+)
+if /i "%LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL%"=="1" (
+  echo [WARN] LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL=1 ignorado para mantener instalacion determinista.
+)
+set "LOCAL_ENGINE_SKIP_PRO_DEPS=0"
+set "LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL=0"
 
 if /i not "%LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES%"=="1" (
   if defined CUDA_VISIBLE_DEVICES (

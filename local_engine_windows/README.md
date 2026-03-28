@@ -305,6 +305,11 @@ Si se envia `seed`, el motor fija la semilla de `torch` para ese request y mejor
 
 ## Configuracion por variables de entorno
 
+Importante:
+- `run_local_engine.bat` solo modifica dependencias dentro de `.\.venv\` (proyecto local).
+- `run_portable_engine.bat` solo modifica dependencias dentro de `.\runtime\python311\` (runtime embebido del ZIP).
+- No se desinstalan paquetes del Python global del sistema.
+
 1. `LOCAL_ENGINE_PORT` (default: `57641`)
 2. `LOCAL_ENGINE_DATA_DIR` (default: `%USERPROFILE%\.studio_voice_local`)
 3. `LOCAL_ENGINE_ALLOWED_ORIGINS` (CSV)
@@ -337,9 +342,12 @@ Si se envia `seed`, el motor fija la semilla de `torch` para ese request y mejor
    - Duracion maxima del fragmento limpio que usa el motor tras normalizar la referencia.
    - Default: `30.0`.
 11. `LOCAL_ENGINE_SKIP_PRO_DEPS`:
-   - `1` para saltar instalacion de dependencias Pro en el `.bat`.
+   - Solo debug interno.
+   - En launcher publico se ignora para mantener instalacion determinista.
 12. `LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL`:
-   - `0`/vacio (default): asegura la matriz oficial de `torch==2.7.0` + `torchaudio==2.7.0`.
+   - Solo debug interno.
+   - En launcher publico se ignora para mantener instalacion determinista.
+   - `0`/vacio (comportamiento forzado): asegura la matriz oficial de `torch==2.7.0` + `torchaudio==2.7.0`.
    - Si detecta NVIDIA, usa `cu128`.
    - Si no hay NVIDIA o el build oficial no soporta la GPU actual, el daemon se anuncia como `real_cpu`.
    - `1`: desactiva esa instalacion automatica.

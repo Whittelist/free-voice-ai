@@ -18,6 +18,16 @@ set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu128"
 set "TORCH_GPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
 set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
 set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+echo [INFO] Entorno aislado: este launcher usa runtime embebido en ".\\runtime\\python311".
+echo [INFO] No modifica el Python global ni paquetes del sistema.
+if /i "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
+  echo [WARN] LOCAL_ENGINE_SKIP_PRO_DEPS=1 ignorado en launcher publico.
+)
+if /i "%LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL%"=="1" (
+  echo [WARN] LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL=1 ignorado en launcher publico.
+)
+set "LOCAL_ENGINE_SKIP_PRO_DEPS=0"
+set "LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL=0"
 
 set "DATA_DIR=%LOCAL_ENGINE_DATA_DIR%"
 if not defined DATA_DIR set "DATA_DIR=%USERPROFILE%\.studio_voice_local"

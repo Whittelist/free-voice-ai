@@ -158,6 +158,11 @@ Studio Voice Local Engine - Windows preview
 2) Abre "Instalar Studio Voice Local Engine.bat".
 3) Sigue los pasos en pantalla. Si falla, la ventana se queda abierta para copiar errores.
 
+Nota para usuarios avanzados:
+- Este instalador NO toca tu Python global ni sus paquetes.
+- Solo instala/actualiza dependencias dentro de "engine\" (runtime aislado del ZIP).
+- El launcher fuerza la matriz oficial de dependencias (sin decisiones del usuario).
+
 Si necesitas soporte:
 - Ejecuta "Exportar Diagnostico Studio Voice.bat"
 - Adjunta el ZIP generado junto con captura del error.
