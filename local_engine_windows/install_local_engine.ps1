@@ -136,7 +136,35 @@ if (-not $NoLaunch) {
 if ($OpenWeb -and -not [string]::IsNullOrWhiteSpace($PublicWebUrl)) {
   if ($PublicWebUrl -match '^https?://') {
     Write-Host "[INFO] Abriendo web publica: $PublicWebUrl"
-    Start-Process -FilePath $PublicWebUrl | Out-Null
+    $openedWeb = $false
+    try {
+      Start-Process -FilePath $PublicWebUrl -ErrorAction Stop | Out-Null
+      $openedWeb = $true
+    } catch {
+      # Some Windows setups fail to resolve default browser from Start-Process URL directly.
+    }
+
+    if (-not $openedWeb) {
+      try {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "start", "", $PublicWebUrl -WindowStyle Hidden -ErrorAction Stop | Out-Null
+        $openedWeb = $true
+      } catch {
+        # Fall through to manual instruction.
+      }
+    }
+
+    if (-not $openedWeb) {
+      Write-Warning "No se pudo abrir el navegador automaticamente."
+      try {
+        if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue) {
+          Set-Clipboard -Value $PublicWebUrl
+          Write-Host "[INFO] URL copiada al portapapeles: $PublicWebUrl"
+        }
+      } catch {
+        # Ignore clipboard failures.
+      }
+      Write-Host "[INFO] Abre manualmente: $PublicWebUrl"
+    }
   } else {
     Write-Warning "PUBLIC_WEB_URL ignorada porque no es una URL http(s) valida: $PublicWebUrl"
   }
