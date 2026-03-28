@@ -30,7 +30,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 try:
     from local_engine_windows import __version__
 except ModuleNotFoundError:  # pragma: no cover - supports direct script execution
-    from __init__ import __version__
+    try:
+        from __init__ import __version__
+    except ModuleNotFoundError:
+        # Keep daemon startup resilient even if __init__.py is missing in a stale portable install.
+        __version__ = "0.1.0"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = int(os.getenv("LOCAL_ENGINE_PORT", "57641"))
