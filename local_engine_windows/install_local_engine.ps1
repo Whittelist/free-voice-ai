@@ -3,7 +3,7 @@ param(
   [string]$AllowedOriginRegex = '^https://[a-z0-9-]+(\.up)?\.railway\.app$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$',
   [string]$LauncherBat = "run_local_engine.bat",
   [string]$PublicWebUrl = "",
-  [int]$WaitForHealthSeconds = 45,
+  [int]$WaitForHealthSeconds = 300,
   [string]$EngineUrl = "http://127.0.0.1:57641",
   [switch]$OpenWeb,
   [switch]$AllowUnhealthyLaunch,
@@ -74,6 +74,7 @@ if (-not $NoLaunch) {
   Write-Host "[INFO] Lanzando el daemon local..."
   $launcherProcess = Start-Process -FilePath $launcherPath -WorkingDirectory $PSScriptRoot -PassThru
   Write-Host "[INFO] Esperando health en $EngineUrl/health (max ${WaitForHealthSeconds}s)..."
+  Write-Host "[INFO] Primer arranque puede tardar varios minutos por instalacion de dependencias."
   Write-Host "[INFO] Si falla, revisa logs en $dataDir\\logs"
 
   $deadline = (Get-Date).AddSeconds([Math]::Max(5, $WaitForHealthSeconds))
@@ -118,7 +119,11 @@ if (-not $NoLaunch) {
       $message += " El launcher se cerro (exit code: $launcherExitCode)."
     }
     $message += " Revisa la ventana del launcher y logs en $dataDir\\logs."
-    if ($AllowUnhealthyLaunch) {
+    if (-not $launcherExited) {
+      Write-Warning "$message El proceso del launcher sigue activo; se considera inicializacion en curso."
+      Write-Host "[INFO] Puedes verificar manualmente con:"
+      Write-Host "[INFO] powershell -NoProfile -Command ""Invoke-WebRequest -UseBasicParsing $EngineUrl/health | Select-Object -Expand Content"""
+    } elseif ($AllowUnhealthyLaunch) {
       Write-Warning $message
     } else {
       throw $message
