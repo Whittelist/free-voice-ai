@@ -112,59 +112,6 @@ $installContent = Get-Content -Raw $installBatPath
 $installContent = $installContent.Replace("https://your-domain.example.com", $PublicWebUrl)
 Set-Content -Path $installBatPath -Value $installContent -Encoding ASCII
 
-$launcherInstallPath = Join-Path $stagingRoot "Instalar Studio Voice Local Engine.bat"
-$launcherInstallContent = @'
-@echo off
-setlocal
-cd /d "%~dp0"
-
-set "STUDIO_VOICE_SKIP_PAUSE_ON_INSTALL_ERROR=1"
-call "%~dp0engine\Install Studio Voice Local Engine.bat"
-set "EXIT_CODE=%ERRORLEVEL%"
-
-if "%EXIT_CODE%"=="0" (
-  echo.
-  echo [OK] Instalador finalizado.
-  echo [INFO] Abre "Abrir Studio Voice Connector.bat" para iniciar/detener motor y copiar token.
-  echo [INFO] Si no se abrio solo, comprueba estado con:
-  echo [INFO] powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:57641/health ^| Select-Object -Expand Content"
-  echo [INFO] Token local ^(si existe^): %USERPROFILE%\.studio_voice_local\api_token.txt
-) else (
-  echo.
-  echo [ERROR] La instalacion termino con errores.
-  echo [INFO] Puedes copiar el error de esta ventana.
-  echo [INFO] Logs ^(si existen^): %USERPROFILE%\.studio_voice_local\logs
-  echo [INFO] Abre la web de Studio Voice y pulsa "Reportar bug / soporte".
-  echo [INFO] Si puedes, adjunta tambien el ZIP de "Exportar Diagnostico Studio Voice.bat".
-)
-
-if /i not "%STUDIO_VOICE_AUTOCLOSE_INSTALLER%"=="1" (
-  echo.
-  echo [INFO] Pulsa una tecla para cerrar esta ventana...
-  pause >nul
-)
-
-exit /b %EXIT_CODE%
-'@
-Set-Content -Path $launcherInstallPath -Value $launcherInstallContent -Encoding ASCII
-
-$launcherDiagPath = Join-Path $stagingRoot "Exportar Diagnostico Studio Voice.bat"
-$launcherDiagContent = @'
-@echo off
-setlocal
-cd /d "%~dp0"
-
-call "%~dp0engine\Export Studio Voice Diagnostics.bat"
-set "EXIT_CODE=%ERRORLEVEL%"
-if not "%EXIT_CODE%"=="0" (
-  echo [ERROR] La exportacion de diagnostico termino con errores.
-  echo.
-  pause
-)
-exit /b %EXIT_CODE%
-'@
-Set-Content -Path $launcherDiagPath -Value $launcherDiagContent -Encoding ASCII
-
 $launcherConnectorPath = Join-Path $stagingRoot "Abrir Studio Voice Connector.bat"
 $launcherConnectorContent = @'
 @echo off
@@ -183,12 +130,12 @@ Studio Voice Local Engine - Windows preview
 ===========================================
 
 1) Extrae TODO el ZIP en una carpeta local (no lo ejecutes dentro del ZIP).
-2) Abre "Abrir Studio Voice Connector.bat" (recomendado).
+2) Abre "Abrir Studio Voice Connector.bat".
 3) En la ventana del Connector:
    - pulsa "Instalar / Reparar" la primera vez
    - luego usa "Iniciar Motor" / "Detener Motor"
    - pulsa "Copiar Token" y pegalo en la web
-4) Si prefieres flujo clasico, tambien puedes abrir "Instalar Studio Voice Local Engine.bat".
+4) Todo lo demas queda dentro de la carpeta "engine\" como archivos internos.
 
 Nota para usuarios avanzados:
 - Este instalador NO toca tu Python global ni sus paquetes.
@@ -196,7 +143,7 @@ Nota para usuarios avanzados:
 - El launcher fuerza la matriz oficial de dependencias (sin decisiones del usuario).
 
 Si necesitas soporte:
-- Ejecuta "Exportar Diagnostico Studio Voice.bat"
+- En el Connector pulsa "Exportar Diagnostico"
 - Adjunta el ZIP generado junto con captura del error.
 
 Contenido tecnico:
@@ -212,9 +159,7 @@ $manifest = [ordered]@{
   python_embeddable_version = $PythonEmbedVersion
   entrypoints = @(
     "Abrir Studio Voice Connector.bat",
-    "Instalar Studio Voice Local Engine.bat",
-    "README_PRIMERO.txt",
-    "Exportar Diagnostico Studio Voice.bat"
+    "README_PRIMERO.txt"
   )
 }
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $stagingRoot "manifest.json") -Encoding UTF8
