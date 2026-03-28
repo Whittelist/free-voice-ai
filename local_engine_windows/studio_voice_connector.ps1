@@ -167,7 +167,7 @@ function Set-ButtonStyle {
   $Button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
   $Button.BackColor = $BackColor
   $Button.ForeColor = $ForeColor
-  $Button.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Semibold)
+  $Button.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
   if ($Outlined) {
     $Button.FlatAppearance.BorderSize = 1
     $Button.FlatAppearance.BorderColor = [System.Drawing.ColorTranslator]::FromHtml("#C8C6C4")
@@ -215,7 +215,7 @@ $form.Controls.Add($statusCard)
 
 $script:statusLabel = New-Object System.Windows.Forms.Label
 $script:statusLabel.Text = "Estado: iniciando..."
-$script:statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Semibold)
+$script:statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
 $script:statusLabel.Location = New-Object System.Drawing.Point(14, 12)
 $script:statusLabel.Size = New-Object System.Drawing.Size(712, 24)
 $statusCard.Controls.Add($script:statusLabel)
