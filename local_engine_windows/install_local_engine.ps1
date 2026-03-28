@@ -6,6 +6,7 @@ param(
   [int]$WaitForHealthSeconds = 45,
   [string]$EngineUrl = "http://127.0.0.1:57641",
   [switch]$OpenWeb,
+  [switch]$AllowUnhealthyLaunch,
   [switch]$NoLaunch,
   [switch]$NoDesktopShortcut
 )
@@ -71,12 +72,26 @@ if (-not $NoLaunch) {
     throw "No existe el launcher solicitado: $launcherPath"
   }
   Write-Host "[INFO] Lanzando el daemon local..."
-  Start-Process -FilePath $launcherPath -WorkingDirectory $PSScriptRoot | Out-Null
+  $launcherProcess = Start-Process -FilePath $launcherPath -WorkingDirectory $PSScriptRoot -PassThru
+  Write-Host "[INFO] Esperando health en $EngineUrl/health (max ${WaitForHealthSeconds}s)..."
+  Write-Host "[INFO] Si falla, revisa logs en $dataDir\\logs"
 
   $deadline = (Get-Date).AddSeconds([Math]::Max(5, $WaitForHealthSeconds))
   $healthy = $false
+  $launcherExited = $false
+  $launcherExitCode = $null
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 700
+    try {
+      if ($launcherProcess.HasExited) {
+        $launcherExited = $true
+        $launcherExitCode = $launcherProcess.ExitCode
+        break
+      }
+    } catch {
+      # If we cannot inspect process state, continue health checks.
+    }
+
     try {
       $health = Invoke-RestMethod -UseBasicParsing -Uri "$EngineUrl/health" -Method Get -TimeoutSec 3
       if ($health.status -eq "ok") {
@@ -98,7 +113,16 @@ if (-not $NoLaunch) {
       }
     }
   } else {
-    Write-Warning "El daemon no confirmo health en $WaitForHealthSeconds segundos. Revisa la ventana del launcher y logs."
+    $message = "El daemon no confirmo health en $WaitForHealthSeconds segundos."
+    if ($launcherExited) {
+      $message += " El launcher se cerro (exit code: $launcherExitCode)."
+    }
+    $message += " Revisa la ventana del launcher y logs en $dataDir\\logs."
+    if ($AllowUnhealthyLaunch) {
+      Write-Warning $message
+    } else {
+      throw $message
+    }
   }
 } else {
   Write-Host "[INFO] Instalacion lista. Ejecuta $LauncherBat cuando quieras iniciar el daemon."
