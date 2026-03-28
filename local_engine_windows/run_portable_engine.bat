@@ -212,8 +212,15 @@ if defined PORT_PID (
 )
 
 set "LOCAL_ENGINE_DATA_DIR=%DATA_DIR%"
+set "ENGINE_ENTRYPOINT=app.py"
+"%EMBED_PY%" -c "import tkinter" >nul 2>nul
+if errorlevel 1 (
+  set "ENGINE_ENTRYPOINT=daemon.py"
+  echo [WARN] tkinter no disponible en runtime portable. Arrancando en modo headless.
+  echo [INFO] El token local estara en: "%DATA_DIR%\api_token.txt"
+)
 echo [INFO] Starting Studio Voice Local Engine (portable)...
-"%EMBED_PY%" app.py
+"%EMBED_PY%" "%ENGINE_ENTRYPOINT%"
 if errorlevel 1 (
   echo [ERROR] El proceso local finalizo con error.
   goto :error_exit
