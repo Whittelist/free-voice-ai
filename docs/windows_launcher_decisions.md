@@ -30,6 +30,14 @@ Este documento explica cambios tecnicos del launcher `ZIP + BAT` para que el equ
    - Tambien informa si el proceso launcher se cerro prematuramente.
    - Objetivo: evitar cierres silenciosos y mejorar el diagnostico.
 
+5. **Unblock automatico de archivos descargados**
+   - `Install Studio Voice Local Engine.bat` ejecuta `Unblock-File` en origen y en ruta activa.
+   - Objetivo: reducir friccion por `Zone.Identifier`/MOTW en equipos con politicas `RemoteSigned`.
+
+6. **Log de bootstrap del instalador**
+   - El instalador escribe trazas tempranas en `%USERPROFILE%\.studio_voice_local\logs\install-bootstrap-*.log`.
+   - Objetivo: diagnosticar casos donde "no se abre" o "se cierra instantaneamente".
+
 ## Impacto en experiencia de usuario
 
 1. El usuario puede descargar en `Descargas` y ejecutar `Install Studio Voice Local Engine.bat`.

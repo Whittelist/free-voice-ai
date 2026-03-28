@@ -54,6 +54,17 @@ No soportado oficialmente en v1:
 3. Pega el contenido del `support_bundle.json`.
 4. Anade pasos exactos, error textual y entorno (Windows/navegador/GPU).
 
+## Si el instalador no se abre o se cierra al instante
+
+1. Asegurate de ejecutar `Instalar Studio Voice Local Engine.bat` (raiz del ZIP extraido), no el ZIP sin extraer.
+2. Ejecutalo desde PowerShell para ver errores:
+   - `.\Instalar Studio Voice Local Engine.bat`
+3. Si Windows bloqueo archivos descargados, desbloquea la carpeta:
+   - `Get-ChildItem -Recurse -File | Unblock-File`
+4. Revisa logs de bootstrap/launcher:
+   - `%USERPROFILE%\.studio_voice_local\logs`
+5. Si sigue fallando, exporta diagnostico y reporta en `/support`.
+
 Mensaje recomendado al usuario final:
 
 1. "Bajo estas condiciones, funciona bien."

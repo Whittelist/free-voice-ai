@@ -32,8 +32,9 @@ Ruta de soporte cuando algo no funciona:
 4. Runbook operativo Windows (sesion real): [`local_engine_windows/RUNBOOK_modo_pro_windows.md`](./local_engine_windows/RUNBOOK_modo_pro_windows.md)
 5. Guia usuario Windows: [`docs/windows_user_guide.md`](./docs/windows_user_guide.md)
 6. Decisiones tecnicas del launcher Windows: [`docs/windows_launcher_decisions.md`](./docs/windows_launcher_decisions.md)
-7. FAQ troubleshooting: [`docs/troubleshooting_faq.md`](./docs/troubleshooting_faq.md)
-8. Runbook interno release/soporte: [`docs/runbook_internal.md`](./docs/runbook_internal.md)
+7. Auditoria de hardening del instalador: [`docs/windows_installer_best_practices_audit.md`](./docs/windows_installer_best_practices_audit.md)
+8. FAQ troubleshooting: [`docs/troubleshooting_faq.md`](./docs/troubleshooting_faq.md)
+9. Runbook interno release/soporte: [`docs/runbook_internal.md`](./docs/runbook_internal.md)
 
 ## Frontend (Vite + React)
 

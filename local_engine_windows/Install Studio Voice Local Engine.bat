@@ -2,21 +2,41 @@
 setlocal
 cd /d "%~dp0"
 
+set "DATA_DIR=%USERPROFILE%\.studio_voice_local"
+set "LOG_DIR=%DATA_DIR%\logs"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
+for /f %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set "INSTALL_TS=%%T"
+if not defined INSTALL_TS set "INSTALL_TS=unknown"
+set "INSTALL_LOG=%LOG_DIR%\install-bootstrap-%INSTALL_TS%.log"
+
 set "SOURCE_ENGINE_DIR=%cd%"
 set "PORTABLE_ENGINE_HOME=%LOCALAPPDATA%\StudioVoiceLocal\engine"
 set "ACTIVE_ENGINE_DIR=%SOURCE_ENGINE_DIR%"
 
+echo [INFO] Inicio instalador portable. > "%INSTALL_LOG%"
+echo [INFO] source_engine_dir=%SOURCE_ENGINE_DIR% >> "%INSTALL_LOG%"
+echo [INFO] portable_engine_home=%PORTABLE_ENGINE_HOME% >> "%INSTALL_LOG%"
+
+echo [INFO] Preparando archivos descargados (unblock)...
+echo [INFO] Preparando archivos descargados (unblock)... >> "%INSTALL_LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%SOURCE_ENGINE_DIR%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
+
 if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
   echo [INFO] Preparando instalacion en ruta corta para evitar errores de Windows por rutas largas...
+  echo [INFO] Copiando launcher a ruta corta... >> "%INSTALL_LOG%"
   if not exist "%PORTABLE_ENGINE_HOME%" mkdir "%PORTABLE_ENGINE_HOME%" >nul 2>nul
   robocopy "%SOURCE_ENGINE_DIR%" "%PORTABLE_ENGINE_HOME%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP >nul
   set "ROBOCOPY_EXIT=%ERRORLEVEL%"
+  echo [INFO] robocopy_exit=%ROBOCOPY_EXIT% >> "%INSTALL_LOG%"
   if %ROBOCOPY_EXIT% GEQ 8 (
     echo [WARN] No se pudo copiar el launcher a "%PORTABLE_ENGINE_HOME%" ^(codigo %ROBOCOPY_EXIT%^).
     echo [WARN] Se continuara desde la carpeta actual: "%SOURCE_ENGINE_DIR%".
+    echo [WARN] Copia a ruta corta fallo. Se continua desde source. >> "%INSTALL_LOG%"
   ) else (
     set "ACTIVE_ENGINE_DIR=%PORTABLE_ENGINE_HOME%"
     echo [INFO] Launcher copiado a: "%ACTIVE_ENGINE_DIR%"
+    echo [INFO] active_engine_dir=%ACTIVE_ENGINE_DIR% >> "%INSTALL_LOG%"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%ACTIVE_ENGINE_DIR%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
   )
 )
 
@@ -29,9 +49,12 @@ if defined PUBLIC_WEB_URL (
   set "SUPPORT_URL=%PUBLIC_WEB_URL%/support"
 ) else (
   echo [WARN] STUDIO_VOICE_PUBLIC_WEB_URL no definida. Se instalara solo para localhost.
+  echo [WARN] PUBLIC_WEB_URL no definida; modo localhost. >> "%INSTALL_LOG%"
 )
 
 echo [INFO] Instalando Studio Voice Local Engine (portable launcher)...
+echo [INFO] allowed_origins=%ALLOWED_ORIGINS% >> "%INSTALL_LOG%"
+echo [INFO] install_ps1=%ACTIVE_ENGINE_DIR%\install_local_engine.ps1 >> "%INSTALL_LOG%"
 if defined PUBLIC_WEB_URL (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%ACTIVE_ENGINE_DIR%\install_local_engine.ps1" ^
     -LauncherBat "run_portable_engine.bat" ^
@@ -46,11 +69,13 @@ if defined PUBLIC_WEB_URL (
 )
 
 if errorlevel 1 (
+  echo [ERROR] Instalador retorno errorlevel=%ERRORLEVEL% >> "%INSTALL_LOG%"
   echo [ERROR] La instalacion fallo.
   echo [INFO] La ventana se queda abierta para que puedas copiar el error.
   echo [INFO] Si existe, adjunta tambien logs desde: %USERPROFILE%\.studio_voice_local\logs
   echo [INFO] Entra en: %SUPPORT_URL%
   echo [INFO] O abre la web y pulsa "Reportar bug / soporte", pega el error y te ayudamos.
+  echo [INFO] Log bootstrap: %INSTALL_LOG%
   if /i not "%STUDIO_VOICE_SKIP_PAUSE_ON_INSTALL_ERROR%"=="1" (
     echo.
     pause
@@ -59,4 +84,6 @@ if errorlevel 1 (
 )
 
 echo [INFO] Instalacion completada.
+echo [INFO] Instalacion completada OK. >> "%INSTALL_LOG%"
+echo [INFO] Log bootstrap: %INSTALL_LOG%
 endlocal
