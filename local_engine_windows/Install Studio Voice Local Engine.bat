@@ -51,6 +51,9 @@ if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
 )
 
 set "PUBLIC_WEB_URL=%STUDIO_VOICE_PUBLIC_WEB_URL%"
+if not defined PUBLIC_WEB_URL (
+  set "PUBLIC_WEB_URL=https://free-voice-ai-production.up.railway.app"
+)
 set "ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173"
 set "SUPPORT_URL=/support"
 
