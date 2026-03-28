@@ -12,14 +12,13 @@ Este documento explica cambios tecnicos del launcher `ZIP + BAT` para que el equ
 
 1. **Instalacion en ruta corta automatica**
    - `Install Studio Voice Local Engine.bat` ahora copia el launcher a:
-   - `%LOCALAPPDATA%\StudioVoiceLocal\engine`
+   - `%USERPROFILE%\StudioVoiceLocal\engine`
    - Desde ahi ejecuta `install_local_engine.ps1`.
    - Objetivo: reducir longitud de rutas y evitar `WinError 206` para usuarios que ejecutan desde `Descargas`.
 
-2. **Reejecucion desde instalacion local**
-   - `run_portable_engine.bat` detecta si existe instalacion local en ruta corta.
-   - Si existe y el launcher se ejecuto desde otra carpeta, se reejecuta automaticamente desde la ruta corta.
-   - Objetivo: mantener ejecucion estable y evitar reinstalaciones en rutas largas por error.
+2. **Compatibilidad con ruta legacy**
+   - Si la copia a ruta principal falla, el instalador puede caer a una instalacion legacy previa en `%LOCALAPPDATA%\StudioVoiceLocal\engine` si existe.
+   - Objetivo: no romper instalaciones antiguas mientras migramos a la ruta nueva.
 
 3. **Fallback headless cuando falta tkinter**
    - Si `import tkinter` falla en runtime portable, el launcher arranca `daemon.py` en modo headless.

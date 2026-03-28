@@ -10,11 +10,16 @@ if not defined INSTALL_TS set "INSTALL_TS=unknown"
 set "INSTALL_LOG=%LOG_DIR%\install-bootstrap-%INSTALL_TS%.log"
 
 set "SOURCE_ENGINE_DIR=%cd%"
-set "PORTABLE_ENGINE_HOME=%LOCALAPPDATA%\StudioVoiceLocal\engine"
+set "PREFERRED_ENGINE_HOME=%USERPROFILE%\StudioVoiceLocal\engine"
+if defined STUDIO_VOICE_ENGINE_HOME set "PREFERRED_ENGINE_HOME=%STUDIO_VOICE_ENGINE_HOME%"
+set "LEGACY_ENGINE_HOME=%LOCALAPPDATA%\StudioVoiceLocal\engine"
+set "PORTABLE_ENGINE_HOME=%PREFERRED_ENGINE_HOME%"
 set "ACTIVE_ENGINE_DIR=%SOURCE_ENGINE_DIR%"
 
 echo [INFO] Inicio instalador portable. > "%INSTALL_LOG%"
 echo [INFO] source_engine_dir=%SOURCE_ENGINE_DIR% >> "%INSTALL_LOG%"
+echo [INFO] preferred_engine_home=%PREFERRED_ENGINE_HOME% >> "%INSTALL_LOG%"
+echo [INFO] legacy_engine_home=%LEGACY_ENGINE_HOME% >> "%INSTALL_LOG%"
 echo [INFO] portable_engine_home=%PORTABLE_ENGINE_HOME% >> "%INSTALL_LOG%"
 
 echo [INFO] Preparando archivos descargados (unblock)...
@@ -22,7 +27,7 @@ echo [INFO] Preparando archivos descargados (unblock)... >> "%INSTALL_LOG%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%SOURCE_ENGINE_DIR%' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>nul
 
 if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
-  echo [INFO] Preparando instalacion en ruta corta para evitar errores de Windows por rutas largas...
+  echo [INFO] Preparando instalacion en ruta corta (%PORTABLE_ENGINE_HOME%) para evitar errores de rutas largas...
   echo [INFO] Copiando launcher a ruta corta... >> "%INSTALL_LOG%"
   if not exist "%PORTABLE_ENGINE_HOME%" mkdir "%PORTABLE_ENGINE_HOME%" >nul 2>nul
   robocopy "%SOURCE_ENGINE_DIR%" "%PORTABLE_ENGINE_HOME%" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP >nul
@@ -32,6 +37,11 @@ if /i not "%SOURCE_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
     echo [WARN] No se pudo copiar el launcher a "%PORTABLE_ENGINE_HOME%" ^(codigo %ROBOCOPY_EXIT%^).
     echo [WARN] Se continuara desde la carpeta actual: "%SOURCE_ENGINE_DIR%".
     echo [WARN] Copia a ruta corta fallo. Se continua desde source. >> "%INSTALL_LOG%"
+    if exist "%LEGACY_ENGINE_HOME%\install_local_engine.ps1" (
+      echo [INFO] Instalacion legacy detectada en "%LEGACY_ENGINE_HOME%". Se intentara usar esa ruta.
+      echo [INFO] fallback_legacy_engine_home=%LEGACY_ENGINE_HOME% >> "%INSTALL_LOG%"
+      set "ACTIVE_ENGINE_DIR=%LEGACY_ENGINE_HOME%"
+    )
   ) else (
     set "ACTIVE_ENGINE_DIR=%PORTABLE_ENGINE_HOME%"
     echo [INFO] Launcher copiado a: "%ACTIVE_ENGINE_DIR%"

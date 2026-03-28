@@ -33,7 +33,7 @@ No soportado oficialmente en v1:
 2. Descarga `studio-voice-local-windows-preview.zip`.
 3. Extrae el ZIP.
 4. Ejecuta `Install Studio Voice Local Engine.bat`.
-5. El instalador movera automaticamente el motor a una ruta corta en `%LOCALAPPDATA%` (normal y esperado).
+5. El instalador movera automaticamente el motor a una ruta corta en `%USERPROFILE%\StudioVoiceLocal\engine` (normal y esperado).
 6. Acepta permiso local del navegador si Chrome/Edge lo pide.
 7. Pulsa `Comprobar motor` en la web.
 8. Pulsa `Preparar modo Pro`.

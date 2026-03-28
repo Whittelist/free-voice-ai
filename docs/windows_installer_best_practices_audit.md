@@ -17,7 +17,7 @@ Objetivo: validar si estamos aplicando tecnicas robustas para que el instalador 
 
 1. Tecnica: evitar rutas largas de usuario moviendo instalacion a ruta corta.
    - Estado: **APLICADO**
-   - Implementacion: `Install Studio Voice Local Engine.bat` copia automaticamente a `%LOCALAPPDATA%\StudioVoiceLocal\engine`.
+   - Implementacion: `Install Studio Voice Local Engine.bat` copia automaticamente a `%USERPROFILE%\StudioVoiceLocal\engine`.
    - Motivo: reduce riesgo de `WinError 206`.
 
 2. Tecnica: no depender de `tkinter` en runtime embebido.
@@ -45,10 +45,10 @@ Objetivo: validar si estamos aplicando tecnicas robustas para que el instalador 
    - Implementacion: `Install Studio Voice Local Engine.bat` escribe log de bootstrap en `%USERPROFILE%\.studio_voice_local\logs`.
    - Motivo: soporte reproducible sin depender de captura manual.
 
-7. Tecnica: ejecutar desde instalacion conocida/estable.
+7. Tecnica: compatibilidad con instalaciones previas sin romper flujo.
    - Estado: **APLICADO**
-   - Implementacion: `run_portable_engine.bat` reejecuta desde `%LOCALAPPDATA%\StudioVoiceLocal\engine` si detecta instalacion local.
-   - Motivo: coherencia de entorno y menor riesgo por rutas arbitrarias.
+   - Implementacion: el instalador prioriza la ruta nueva corta, y si falla puede usar ruta legacy previa en `%LOCALAPPDATA%\StudioVoiceLocal\engine`.
+   - Motivo: mantener continuidad para usuarios existentes durante la migracion.
 
 8. Tecnica: vendoring de dependencias en embeddable (en lugar de `pip install` en primer arranque).
    - Estado: **PARCIAL / PENDIENTE**

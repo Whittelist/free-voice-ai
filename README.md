@@ -132,7 +132,7 @@ Notas del runtime real:
 3. El daemon clasifica el runtime como `real_gpu`, `real_cpu`, `mock` o `disabled_frozen`.
 4. La TTS Pro usa referencias por defecto de `es/en` cuando no subes audio.
 5. El texto largo se segmenta automaticamente en bloques de hasta `300` caracteres.
-6. El instalador portable mueve automaticamente el launcher a una ruta corta en `%LOCALAPPDATA%` para evitar errores de rutas largas en Windows.
+6. El instalador portable mueve automaticamente el launcher a una ruta corta en `%USERPROFILE%\StudioVoiceLocal\engine` para evitar errores de rutas largas en Windows.
 
 Build de release (`.exe`) legacy:
 
