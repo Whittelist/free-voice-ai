@@ -119,15 +119,28 @@ cd /d "%~dp0"
 set "STUDIO_VOICE_SKIP_PAUSE_ON_INSTALL_ERROR=1"
 call "%~dp0engine\Install Studio Voice Local Engine.bat"
 set "EXIT_CODE=%ERRORLEVEL%"
-if not "%EXIT_CODE%"=="0" (
+
+if "%EXIT_CODE%"=="0" (
+  echo.
+  echo [OK] Instalador finalizado.
+  echo [INFO] Si no se abrio solo, comprueba estado con:
+  echo [INFO] powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:57641/health ^| Select-Object -Expand Content"
+  echo [INFO] Token local ^(si existe^): %USERPROFILE%\.studio_voice_local\api_token.txt
+) else (
+  echo.
   echo [ERROR] La instalacion termino con errores.
   echo [INFO] Puedes copiar el error de esta ventana.
   echo [INFO] Logs ^(si existen^): %USERPROFILE%\.studio_voice_local\logs
   echo [INFO] Abre la web de Studio Voice y pulsa "Reportar bug / soporte".
   echo [INFO] Si puedes, adjunta tambien el ZIP de "Exportar Diagnostico Studio Voice.bat".
-  echo.
-  pause
 )
+
+if /i not "%STUDIO_VOICE_AUTOCLOSE_INSTALLER%"=="1" (
+  echo.
+  echo [INFO] Pulsa una tecla para cerrar esta ventana...
+  pause >nul
+)
+
 exit /b %EXIT_CODE%
 '@
 Set-Content -Path $launcherInstallPath -Value $launcherInstallContent -Encoding ASCII
