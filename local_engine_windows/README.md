@@ -245,7 +245,7 @@ py -3.11 -m venv .\local_engine_windows\.venv
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements.txt
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install -r .\local_engine_windows\requirements_pro.txt
 .\local_engine_windows\.venv\Scripts\python.exe -m pip install --no-deps chatterbox-tts==0.1.6
-.\local_engine_windows\.venv\Scripts\python.exe -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 torch==2.7.0 torchaudio==2.7.0
+.\local_engine_windows\.venv\Scripts\python.exe -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch==2.6.0 torchaudio==2.6.0
 npm run local-engine
 ```
 
@@ -347,8 +347,8 @@ Importante:
 12. `LOCAL_ENGINE_SKIP_TORCH_CUDA_AUTOINSTALL`:
    - Solo debug interno.
    - En launcher publico se ignora para mantener instalacion determinista.
-   - `0`/vacio (comportamiento forzado): asegura la matriz oficial de `torch==2.7.0` + `torchaudio==2.7.0`.
-   - Si detecta NVIDIA, usa `cu128`.
+   - `0`/vacio (comportamiento forzado): asegura la matriz oficial de `torch==2.6.0` + `torchaudio==2.6.0`.
+   - Si detecta NVIDIA, usa `cu124`.
    - Si no hay NVIDIA o el build oficial no soporta la GPU actual, el daemon se anuncia como `real_cpu`.
    - `1`: desactiva esa instalacion automatica.
 13. `LOCAL_ENGINE_RESPECT_CUDA_VISIBLE_DEVICES`:

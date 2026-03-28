@@ -550,8 +550,8 @@ class EngineRuntime:
                     self.log(
                         "WARN: torch instalado sin CUDA. Si tienes GPU NVIDIA y quieres usarla, "
                         "instala wheels CUDA: "
-                        "python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 "
-                        "torch==2.7.0 torchaudio==2.7.0"
+                        "python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 "
+                        "torch==2.6.0 torchaudio==2.6.0"
                     )
                 else:
                     self.real_backend_device_reason = "cuda_runtime_unavailable"

@@ -14,10 +14,12 @@ set "BOOTSTRAP_SENTINEL=%EMBED_DIR%\.portable_bootstrap_done"
 set "PRO_SENTINEL=%EMBED_DIR%\.portable_pro_deps_done"
 set "GET_PIP_PY=%EMBED_DIR%\get-pip.py"
 set "CHATTERBOX_PACKAGE=chatterbox-tts==0.1.6"
-set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu128"
-set "TORCH_GPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+set "TORCH_VERSION=2.6.0"
+set "TORCH_CUDA_BUILD=12.4"
+set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu124"
+set "TORCH_GPU_PACKAGES=torch==%TORCH_VERSION% torchaudio==%TORCH_VERSION%"
 set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
-set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+set "TORCH_CPU_PACKAGES=torch==%TORCH_VERSION% torchaudio==%TORCH_VERSION%"
 set "PIP_COMMON_FLAGS=--no-warn-script-location"
 
 set "ENGINE_PATH_LEN=0"
@@ -176,7 +178,7 @@ if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
     set "HAS_NVIDIA=0"
     set "TORCH_TARGET_INDEX_URL=%TORCH_GPU_INDEX_URL%"
     set "TORCH_TARGET_PACKAGES=%TORCH_GPU_PACKAGES%"
-    set "TORCH_TARGET_LABEL=GPU CUDA 12.8"
+    set "TORCH_TARGET_LABEL=GPU CUDA %TORCH_CUDA_BUILD%"
     where nvidia-smi >nul 2>nul && set "HAS_NVIDIA=1"
     if "!HAS_NVIDIA!"=="0" (
       set "TORCH_TARGET_INDEX_URL=%TORCH_CPU_INDEX_URL%"
@@ -185,7 +187,7 @@ if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
     )
 
     set "TORCH_MATRIX_OK=0"
-    "%EMBED_PY%" -c "import sys,torch; expected_version='2.7.0'; expected_cuda='12.8' if '!HAS_NVIDIA!'=='1' else ''; version_ok=str(getattr(torch,'__version__','')).startswith(expected_version); cuda_build=str(getattr(getattr(torch,'version',None),'cuda',None) or ''); cuda_ok=(cuda_build==expected_cuda) if expected_cuda else (cuda_build==''); sys.exit(0 if version_ok and cuda_ok else 1)" >nul 2>nul
+    "%EMBED_PY%" -c "import sys,torch; expected_version='!TORCH_VERSION!'; expected_cuda='!TORCH_CUDA_BUILD!' if '!HAS_NVIDIA!'=='1' else ''; version_ok=str(getattr(torch,'__version__','')).startswith(expected_version); cuda_build=str(getattr(getattr(torch,'version',None),'cuda',None) or ''); cuda_ok=(cuda_build==expected_cuda) if expected_cuda else (cuda_build==''); sys.exit(0 if version_ok and cuda_ok else 1)" >nul 2>nul
     if not errorlevel 1 set "TORCH_MATRIX_OK=1"
 
     if "!TORCH_MATRIX_OK!"=="0" (

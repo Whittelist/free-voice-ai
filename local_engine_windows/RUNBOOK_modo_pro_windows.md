@@ -95,7 +95,7 @@ Checklist:
 
 Sintoma:
 
-1. `torch_version` es `2.7.0+cu128`.
+1. `torch_version` es `2.6.0+cu124`.
 2. Pero `/capabilities` muestra `runtime_class: real_cpu` y `cuda_available: false`.
 
 Causa real observada:
