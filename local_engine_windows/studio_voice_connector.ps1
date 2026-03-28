@@ -9,6 +9,22 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# Hide host console when the script is launched from a BAT file.
+try {
+  Add-Type -Namespace Native -Name Win32 -MemberDefinition @"
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern IntPtr GetConsoleWindow();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+"@
+  $consoleHwnd = [Native.Win32]::GetConsoleWindow()
+  if ($consoleHwnd -ne [IntPtr]::Zero) {
+    [Native.Win32]::ShowWindow($consoleHwnd, 0) | Out-Null
+  }
+} catch {
+  # If hiding fails we continue; UI can still start.
+}
+
 if ([string]::IsNullOrWhiteSpace($EnginePort)) {
   $EnginePort = $env:LOCAL_ENGINE_PORT
 }
@@ -69,35 +85,50 @@ function Get-Token {
 }
 
 function Get-ListeningPid {
+  # Prefer the native cmdlet because it is usually faster than parsing netstat.
+  try {
+    if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+      $conn = Get-NetTCPConnection -LocalPort $script:enginePort -State Listen -ErrorAction Stop | Select-Object -First 1
+      if ($conn -and $conn.OwningProcess -and "$($conn.OwningProcess)" -match '^\d+$') {
+        return [int]$conn.OwningProcess
+      }
+    }
+  } catch {
+    # Fall back to netstat parsing.
+  }
+
   $patterns = @(
     "127\.0\.0\.1:$($script:enginePort)\s+.*LISTENING",
     "0\.0\.0\.0:$($script:enginePort)\s+.*LISTENING",
     "\[::\]:$($script:enginePort)\s+.*LISTENING"
   )
-
-  $netstatLines = netstat -ano
-  foreach ($pattern in $patterns) {
-    $matches = $netstatLines | Select-String -Pattern $pattern
-    foreach ($match in $matches) {
-      $line = $match.Line.Trim()
-      if (-not $line) {
-        continue
-      }
-      $parts = $line -split '\s+'
-      if ($parts.Length -gt 0) {
-        $pidCandidate = $parts[$parts.Length - 1]
-        if ($pidCandidate -match '^\d+$') {
-          return [int]$pidCandidate
+  try {
+    $netstatLines = netstat -ano
+    foreach ($pattern in $patterns) {
+      $matches = $netstatLines | Select-String -Pattern $pattern
+      foreach ($match in $matches) {
+        $line = $match.Line.Trim()
+        if (-not $line) {
+          continue
+        }
+        $parts = $line -split '\s+'
+        if ($parts.Length -gt 0) {
+          $pidCandidate = $parts[$parts.Length - 1]
+          if ($pidCandidate -match '^\d+$') {
+            return [int]$pidCandidate
+          }
         }
       }
     }
+  } catch {
+    # Ignore and return null below.
   }
   return $null
 }
 
 function Test-EngineHealthy {
   try {
-    $resp = Invoke-RestMethod -UseBasicParsing -Uri "$($script:engineUrl)/health" -Method Get -TimeoutSec 2
+    $resp = Invoke-RestMethod -UseBasicParsing -Uri "$($script:engineUrl)/health" -Method Get -TimeoutSec 1
     return ($resp.status -eq "ok" -and $resp.service -eq "studio-voice-local-engine")
   } catch {
     return $false
@@ -370,7 +401,7 @@ $diagBtn.Add_Click({
 })
 
 $refreshTimer = New-Object System.Windows.Forms.Timer
-$refreshTimer.Interval = 2000
+$refreshTimer.Interval = 5000
 $refreshTimer.Add_Tick({
   Refresh-UiState
 })
