@@ -56,6 +56,11 @@ if not defined PUBLIC_WEB_URL (
 )
 set "ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173"
 set "SUPPORT_URL=/support"
+set "INSTALL_OPEN_WEB_FLAG="
+if /i "%STUDIO_VOICE_OPEN_WEB_ON_INSTALL%"=="1" (
+  set "INSTALL_OPEN_WEB_FLAG=-OpenWeb"
+  echo [INFO] STUDIO_VOICE_OPEN_WEB_ON_INSTALL=1 detectado. Se abrira la web al finalizar.
+)
 
 if defined PUBLIC_WEB_URL (
   set "ALLOWED_ORIGINS=%ALLOWED_ORIGINS%,%PUBLIC_WEB_URL%"
@@ -69,11 +74,7 @@ echo [INFO] Instalando Studio Voice Local Engine (portable launcher)...
 echo [INFO] allowed_origins=%ALLOWED_ORIGINS% >> "%INSTALL_LOG%"
 echo [INFO] install_ps1=%ACTIVE_ENGINE_DIR%\install_local_engine.ps1 >> "%INSTALL_LOG%"
 if defined PUBLIC_WEB_URL (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%ACTIVE_ENGINE_DIR%\install_local_engine.ps1" ^
-    -LauncherBat "run_portable_engine.bat" ^
-    -PublicWebUrl "%PUBLIC_WEB_URL%" ^
-    -OpenWeb ^
-    -AllowedOrigins "%ALLOWED_ORIGINS%"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%ACTIVE_ENGINE_DIR%\install_local_engine.ps1" -LauncherBat "run_portable_engine.bat" -PublicWebUrl "%PUBLIC_WEB_URL%" !INSTALL_OPEN_WEB_FLAG! -AllowedOrigins "%ALLOWED_ORIGINS%"
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%ACTIVE_ENGINE_DIR%\install_local_engine.ps1" ^
     -LauncherBat "run_portable_engine.bat" ^
@@ -97,6 +98,7 @@ if errorlevel 1 (
 )
 
 echo [INFO] Instalacion completada.
+if defined PUBLIC_WEB_URL echo [INFO] Abre manualmente la web cuando quieras: %PUBLIC_WEB_URL%
 echo [INFO] Instalacion completada OK. >> "%INSTALL_LOG%"
 echo [INFO] Log bootstrap: %INSTALL_LOG%
 endlocal
