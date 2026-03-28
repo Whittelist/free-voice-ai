@@ -18,6 +18,7 @@ set "TORCH_GPU_INDEX_URL=https://download.pytorch.org/whl/cu128"
 set "TORCH_GPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
 set "TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu"
 set "TORCH_CPU_PACKAGES=torch==2.7.0 torchaudio==2.7.0"
+set "PIP_COMMON_FLAGS=--no-warn-script-location"
 set "CURRENT_ENGINE_DIR=%cd%"
 set "PORTABLE_ENGINE_HOME=%LOCALAPPDATA%\StudioVoiceLocal\engine"
 if /i not "%CURRENT_ENGINE_DIR%"=="%PORTABLE_ENGINE_HOME%" (
@@ -112,14 +113,14 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
   )
 
   echo [INFO] Actualizando pip/tooling...
-  "%EMBED_PY%" -m pip install --upgrade pip wheel "setuptools<81"
+  "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% --upgrade pip wheel "setuptools<81"
   if errorlevel 1 (
     echo [ERROR] Fallo al actualizar pip en runtime portable.
     goto :error_exit
   )
 
   echo [INFO] Instalando dependencias base...
-  "%EMBED_PY%" -m pip install -r requirements.txt
+  "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] Fallo instalando requirements.txt.
     goto :error_exit
@@ -128,11 +129,11 @@ if not exist "%BOOTSTRAP_SENTINEL%" (
   if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
     if exist "requirements_pro.txt" (
       echo [INFO] Instalando dependencias Pro...
-      "%EMBED_PY%" -m pip install -r requirements_pro.txt
+      "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% -r requirements_pro.txt
       if errorlevel 1 (
         echo [WARN] No se pudieron instalar dependencias Pro completas.
       ) else (
-        "%EMBED_PY%" -m pip install --no-deps %CHATTERBOX_PACKAGE%
+        "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% --no-deps %CHATTERBOX_PACKAGE%
         if errorlevel 1 (
           echo [WARN] No se pudo instalar %CHATTERBOX_PACKAGE%.
         ) else (
@@ -152,7 +153,7 @@ set "BASE_DEPS_OK=1"
 if errorlevel 1 set "BASE_DEPS_OK=0"
 if "!BASE_DEPS_OK!"=="0" (
   echo [INFO] Dependencias base incompletas. Reinstalando...
-  "%EMBED_PY%" -m pip install -r requirements.txt
+  "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] No se pudieron recuperar dependencias base.
     goto :error_exit
@@ -168,11 +169,11 @@ if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
 
     if "!NEED_PRO_DEPS!"=="1" (
       echo [INFO] Verificando/instalando dependencias Pro faltantes...
-      "%EMBED_PY%" -m pip install -r requirements_pro.txt
+      "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% -r requirements_pro.txt
       if errorlevel 1 (
         echo [WARN] Dependencias Pro incompletas. Se mantendra modo mock.
       ) else (
-        "%EMBED_PY%" -m pip install --no-deps %CHATTERBOX_PACKAGE%
+        "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% --no-deps %CHATTERBOX_PACKAGE%
         if errorlevel 1 (
           echo [WARN] No se pudo instalar %CHATTERBOX_PACKAGE%. Se mantendra modo mock.
         ) else (
@@ -202,12 +203,12 @@ if /i not "%LOCAL_ENGINE_SKIP_PRO_DEPS%"=="1" (
 
     if "!TORCH_MATRIX_OK!"=="0" (
       echo [INFO] Instalando/actualizando matriz oficial de torch para !TORCH_TARGET_LABEL!...
-      "%EMBED_PY%" -m pip install --upgrade --index-url "!TORCH_TARGET_INDEX_URL!" !TORCH_TARGET_PACKAGES!
+      "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% --upgrade --index-url "!TORCH_TARGET_INDEX_URL!" !TORCH_TARGET_PACKAGES!
       if errorlevel 1 (
         echo [WARN] No se pudo instalar torch para !TORCH_TARGET_LABEL!.
         if "!HAS_NVIDIA!"=="1" (
           echo [WARN] Intentando fallback a CPU...
-          "%EMBED_PY%" -m pip install --upgrade --index-url "%TORCH_CPU_INDEX_URL%" %TORCH_CPU_PACKAGES%
+          "%EMBED_PY%" -m pip install %PIP_COMMON_FLAGS% --upgrade --index-url "%TORCH_CPU_INDEX_URL%" %TORCH_CPU_PACKAGES%
         )
       )
     ) else (
