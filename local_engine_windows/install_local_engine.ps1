@@ -57,9 +57,14 @@ if (-not $NoDesktopShortcut) {
   if (-not (Test-Path $launcherPath)) {
     throw "No existe el launcher solicitado: $launcherPath"
   }
+  $connectorPath = Join-Path $PSScriptRoot "Studio Voice Connector.bat"
+  $shortcutTarget = $launcherPath
+  if (Test-Path $connectorPath) {
+    $shortcutTarget = $connectorPath
+  }
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($shortcutPath)
-  $shortcut.TargetPath = $launcherPath
+  $shortcut.TargetPath = $shortcutTarget
   $shortcut.WorkingDirectory = $PSScriptRoot
   $shortcut.Description = "Studio Voice Local Engine"
   $shortcut.Save()
@@ -130,7 +135,12 @@ if (-not $NoLaunch) {
     }
   }
 } else {
-  Write-Host "[INFO] Instalacion lista. Ejecuta $LauncherBat cuando quieras iniciar el daemon."
+  $connectorPath = Join-Path $PSScriptRoot "Studio Voice Connector.bat"
+  if (Test-Path $connectorPath) {
+    Write-Host "[INFO] Instalacion lista. Ejecuta Studio Voice Connector.bat para iniciar/detener/copiar token."
+  } else {
+    Write-Host "[INFO] Instalacion lista. Ejecuta $LauncherBat cuando quieras iniciar el daemon."
+  }
 }
 
 if ($OpenWeb -and -not [string]::IsNullOrWhiteSpace($PublicWebUrl)) {

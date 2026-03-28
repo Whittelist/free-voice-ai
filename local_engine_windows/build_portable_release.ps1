@@ -79,6 +79,8 @@ $filesToCopy = @(
   "requirements_pro.txt",
   "run_portable_engine.bat",
   "install_local_engine.ps1",
+  "studio_voice_connector.ps1",
+  "Studio Voice Connector.bat",
   "export_diagnostics.ps1",
   "Install Studio Voice Local Engine.bat",
   "Export Studio Voice Diagnostics.bat"
@@ -123,6 +125,7 @@ set "EXIT_CODE=%ERRORLEVEL%"
 if "%EXIT_CODE%"=="0" (
   echo.
   echo [OK] Instalador finalizado.
+  echo [INFO] Abre "Abrir Studio Voice Connector.bat" para iniciar/detener motor y copiar token.
   echo [INFO] Si no se abrio solo, comprueba estado con:
   echo [INFO] powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:57641/health ^| Select-Object -Expand Content"
   echo [INFO] Token local ^(si existe^): %USERPROFILE%\.studio_voice_local\api_token.txt
@@ -162,14 +165,30 @@ exit /b %EXIT_CODE%
 '@
 Set-Content -Path $launcherDiagPath -Value $launcherDiagContent -Encoding ASCII
 
+$launcherConnectorPath = Join-Path $stagingRoot "Abrir Studio Voice Connector.bat"
+$launcherConnectorContent = @'
+@echo off
+setlocal
+cd /d "%~dp0"
+
+call "%~dp0engine\Studio Voice Connector.bat"
+set "EXIT_CODE=%ERRORLEVEL%"
+exit /b %EXIT_CODE%
+'@
+Set-Content -Path $launcherConnectorPath -Value $launcherConnectorContent -Encoding ASCII
+
 $readmePath = Join-Path $stagingRoot "README_PRIMERO.txt"
 $readmeContent = @'
 Studio Voice Local Engine - Windows preview
 ===========================================
 
 1) Extrae TODO el ZIP en una carpeta local (no lo ejecutes dentro del ZIP).
-2) Abre "Instalar Studio Voice Local Engine.bat".
-3) Sigue los pasos en pantalla. Si falla, la ventana se queda abierta para copiar errores.
+2) Abre "Abrir Studio Voice Connector.bat" (recomendado).
+3) En la ventana del Connector:
+   - pulsa "Instalar / Reparar" la primera vez
+   - luego usa "Iniciar Motor" / "Detener Motor"
+   - pulsa "Copiar Token" y pegalo en la web
+4) Si prefieres flujo clasico, tambien puedes abrir "Instalar Studio Voice Local Engine.bat".
 
 Nota para usuarios avanzados:
 - Este instalador NO toca tu Python global ni sus paquetes.
@@ -192,6 +211,7 @@ $manifest = [ordered]@{
   public_web_url = $PublicWebUrl
   python_embeddable_version = $PythonEmbedVersion
   entrypoints = @(
+    "Abrir Studio Voice Connector.bat",
     "Instalar Studio Voice Local Engine.bat",
     "README_PRIMERO.txt",
     "Exportar Diagnostico Studio Voice.bat"

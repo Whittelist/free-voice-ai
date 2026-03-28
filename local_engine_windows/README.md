@@ -67,7 +67,8 @@ powershell -ExecutionPolicy Bypass -File .\build_portable_release.ps1 -PublicWeb
 
 2. Publica `studio-voice-local-windows-preview.zip` en GitHub Releases.
 3. Usuario final ejecuta:
-   - `Install Studio Voice Local Engine.bat`
+   - `Abrir Studio Voice Connector.bat` (recomendado)
+   - o `Install Studio Voice Local Engine.bat` (flujo clasico)
 4. Diagnostico para soporte:
    - `Export Studio Voice Diagnostics.bat`
    - o `powershell -ExecutionPolicy Bypass -File .\export_diagnostics.ps1`
