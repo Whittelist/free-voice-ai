@@ -1,6 +1,6 @@
 param(
   [string]$EnginePort = "",
-  [string]$DefaultWebUrl = "https://free-voice-ai-production.up.railway.app"
+  [string]$DefaultWebUrl = "https://vozgratisconia.online"
 )
 
 $ErrorActionPreference = "Stop"
