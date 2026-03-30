@@ -393,11 +393,48 @@ function App() {
       try {
         await localEngineClient.health(engineUrl);
       } catch {
-        const message =
-          "Motor local no detectado. Descargalo/arrancalo con .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar.";
-        setEngineStatus("not_installed");
-        setEngineNote(message);
-        throw new Error(message);
+        const secureRemote =
+          typeof window !== "undefined" &&
+          window.location.protocol === "https:" &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1";
+        const permissionState = await getLocalNetworkPermissionState();
+        const permissionBlocked = secureRemote && (permissionState === "prompt" || permissionState === "denied");
+        const lnaHint = secureRemote
+          ? " Pulsa 'Permitir acceso local' en esta pantalla y acepta el permiso del navegador."
+          : "";
+        const lnaStateHint = permissionState !== "unsupported" ? ` Estado del permiso local-network-access: ${permissionState}.` : "";
+
+        if (permissionBlocked) {
+          if (verbose) {
+            addLog("Modo Pro: permiso local pendiente, intentando solicitarlo automaticamente...");
+          }
+          try {
+            await requestLoopbackPermission(engineUrl);
+            await localEngineClient.health(engineUrl);
+            if (verbose) {
+              addLog("Modo Pro: permiso local concedido, continuando preparacion.");
+            }
+          } catch {
+            const permissionAfterPrompt = await getLocalNetworkPermissionState();
+            const stillBlocked =
+              secureRemote && (permissionAfterPrompt === "prompt" || permissionAfterPrompt === "denied");
+            const message = stillBlocked
+              ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint} Estado del permiso local-network-access: ${permissionAfterPrompt}.`
+              : "Motor local no detectado. Descargalo/arrancalo con .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar.";
+            setEngineStatus(stillBlocked ? "blocked_permission" : "not_installed");
+            setEngineNote(message);
+            throw new LocalEngineError(message, 0, stillBlocked ? "BLOCKED_PERMISSION" : "ENGINE_NOT_FOUND");
+          }
+        } else {
+          const message =
+            "Motor local no detectado. Descargalo/arrancalo con .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar." +
+            lnaHint +
+            lnaStateHint;
+          setEngineStatus("not_installed");
+          setEngineNote(message);
+          throw new LocalEngineError(message, 0, "ENGINE_NOT_FOUND");
+        }
       }
 
       setIsPreparingPro(true);
@@ -829,7 +866,21 @@ function App() {
     } catch (error) {
       const message = formatUiError(error, "Error preparando Modo Pro.");
       addLog(`Modo Pro ERROR: ${message}`);
-      setEngineStatus("error");
+      if (error instanceof LocalEngineError) {
+        if (error.code === "BLOCKED_PERMISSION") {
+          setEngineStatus("blocked_permission");
+        } else if (error.code === "ORIGIN_NOT_ALLOWED") {
+          setEngineStatus("blocked_origin");
+        } else if (error.code === "ENGINE_NOT_FOUND" || error.code === "NETWORK_ERROR") {
+          setEngineStatus("not_installed");
+        } else if (error.code === "MISSING_TOKEN" || error.code === "INVALID_TOKEN") {
+          setEngineStatus("stopped");
+        } else {
+          setEngineStatus("error");
+        }
+      } else {
+        setEngineStatus("error");
+      }
       setEngineNote(message);
     }
   };
