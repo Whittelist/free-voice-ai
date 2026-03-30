@@ -285,7 +285,7 @@ function App() {
         setEngineStatus(permissionBlocked ? "blocked_permission" : "not_installed");
         setEngineNote(
           permissionBlocked
-            ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint}${lnaStateHint}`
+            ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint}${lnaStateHint} Si /health responde pero sigue bloqueado, revisa allowed_origins/config.json del daemon para incluir ${window.location.origin}.`
             : `No hay servicio local en localhost. Inicia el motor con .\\local_engine_windows\\run_local_engine.bat.${secureHint}${lnaHint}${lnaStateHint}`,
         );
         setEngineCapabilities(null);
@@ -420,7 +420,7 @@ function App() {
             const stillBlocked =
               secureRemote && (permissionAfterPrompt === "prompt" || permissionAfterPrompt === "denied");
             const message = stillBlocked
-              ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint} Estado del permiso local-network-access: ${permissionAfterPrompt}.`
+              ? `Chrome/Edge aun no tiene permiso para hablar con localhost.${lnaHint} Estado del permiso local-network-access: ${permissionAfterPrompt}. Si /health responde pero sigue bloqueado, revisa allowed_origins/config.json del daemon para incluir ${window.location.origin}.`
               : "Motor local no detectado. Descargalo/arrancalo con .\\local_engine_windows\\run_local_engine.bat y vuelve a comprobar.";
             setEngineStatus(stillBlocked ? "blocked_permission" : "not_installed");
             setEngineNote(message);

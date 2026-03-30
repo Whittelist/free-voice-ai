@@ -270,12 +270,46 @@ class EngineRuntime:
         return payload
 
     def _resolve_allowed_origins(self) -> list[str]:
+        defaults = [origin.strip() for origin in DEFAULT_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
         configured = self.runtime_config.get("allowed_origins")
+        configured_values: list[str] = []
         if isinstance(configured, list):
-            values = [str(item).strip() for item in configured if str(item).strip()]
-            if values:
-                return values
-        return [origin.strip() for origin in DEFAULT_ALLOWED_ORIGINS.split(",") if origin.strip()]
+            configured_values = [str(item).strip() for item in configured if str(item).strip()]
+        elif isinstance(configured, str):
+            configured_values = [item.strip() for item in configured.split(",") if item.strip()]
+
+        env_origins_raw = os.getenv("LOCAL_ENGINE_ALLOWED_ORIGINS", "")
+        env_values = [item.strip() for item in env_origins_raw.split(",") if item.strip()]
+
+        public_url_candidates = [
+            str(self.runtime_config.get("public_web_url") or "").strip(),
+            str(os.getenv("STUDIO_VOICE_PUBLIC_WEB_URL", "") or "").strip(),
+        ]
+        public_origins: list[str] = []
+        for value in public_url_candidates:
+            if not value or not re.match(r"^https?://", value):
+                continue
+            public_origins.append(value.rstrip("/"))
+
+        baseline_local_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+
+        merged: list[str] = []
+        seen: set[str] = set()
+        for origin in baseline_local_origins + defaults + env_values + configured_values + public_origins:
+            cleaned = origin.strip().rstrip("/")
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(cleaned)
+
+        return merged
 
     def _resolve_allowed_origin_regex(self) -> str | None:
         configured = self.runtime_config.get("allowed_origin_regex")
