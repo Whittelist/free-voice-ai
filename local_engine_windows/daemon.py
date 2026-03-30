@@ -47,8 +47,9 @@ DEFAULT_ALLOWED_ORIGINS = os.getenv(
 )
 DEFAULT_ALLOWED_ORIGIN_REGEX = os.getenv(
     "LOCAL_ENGINE_ALLOWED_ORIGIN_REGEX",
-    r"^https://[a-z0-9-]+(\.up)?\.railway\.app$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
+    r"^https://[^/\s]+$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$",
 )
+STRICT_ORIGIN_POLICY = os.getenv("LOCAL_ENGINE_STRICT_ORIGIN_POLICY", "0") == "1"
 SIMULATE_DOWNLOAD = os.getenv("SIMULATE_MODEL_DOWNLOAD", "0") != "0"
 INFERENCE_BACKEND = os.getenv("LOCAL_ENGINE_INFERENCE_BACKEND", "auto").strip().lower()
 RELEASE_MODEL_ON_UNLOAD = os.getenv("LOCAL_ENGINE_RELEASE_MODEL_ON_UNLOAD", "1") != "0"
@@ -313,9 +314,30 @@ class EngineRuntime:
 
     def _resolve_allowed_origin_regex(self) -> str | None:
         configured = self.runtime_config.get("allowed_origin_regex")
-        if isinstance(configured, str) and configured.strip():
-            return configured.strip()
-        return DEFAULT_ALLOWED_ORIGIN_REGEX.strip() or None
+        configured_regex = configured.strip() if isinstance(configured, str) and configured.strip() else ""
+        default_regex = DEFAULT_ALLOWED_ORIGIN_REGEX.strip()
+        base_regex = configured_regex or default_regex
+
+        if STRICT_ORIGIN_POLICY:
+            return base_regex or None
+
+        # Keep local daemon onboarding resilient for custom HTTPS domains even with stale config.json.
+        relaxed_https_regex = r"^https://[^/\s]+$"
+        safe_local_http_regex = r"^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$"
+
+        fragments: list[str] = []
+        seen: set[str] = set()
+        for regex_fragment in (base_regex, safe_local_http_regex, relaxed_https_regex):
+            candidate = (regex_fragment or "").strip()
+            if not candidate:
+                continue
+            key = candidate.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            fragments.append(f"(?:{candidate})")
+
+        return "|".join(fragments) if fragments else None
 
     def _runtime_class(self) -> str:
         if self.inference_backend == "chatterbox":

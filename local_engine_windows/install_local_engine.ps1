@@ -1,6 +1,6 @@
 param(
   [string[]]$AllowedOrigins = @(),
-  [string]$AllowedOriginRegex = '^https://[a-z0-9-]+(\.up)?\.railway\.app$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$',
+  [string]$AllowedOriginRegex = '^https://[^/\s]+$|^http://localhost(:\d+)?$|^http://127\.0\.0\.1(:\d+)?$',
   [string]$LauncherBat = "run_local_engine.bat",
   [string]$PublicWebUrl = "",
   [int]$WaitForHealthSeconds = 300,

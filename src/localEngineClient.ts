@@ -144,11 +144,39 @@ const asBaseUrl = (baseUrl?: string): string => {
   }
 };
 
-const isLoopbackUrl = (candidateUrl: string): boolean => {
+const isPrivateOrLocalIPv4 = (host: string): boolean => {
+  const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+  const octets = match.slice(1).map((part) => Number(part));
+  if (octets.some((value) => Number.isNaN(value) || value < 0 || value > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+};
+
+const isPrivateOrLocalIPv6 = (host: string): boolean => {
+  const normalized = host.toLowerCase();
+  return (
+    normalized === "::1" ||
+    normalized === "[::1]" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe80:")
+  );
+};
+
+const isLocalNetworkUrl = (candidateUrl: string): boolean => {
   try {
     const parsed = new URL(candidateUrl);
     const host = parsed.hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+    if (host === "localhost" || host.endsWith(".local")) return true;
+    if (isPrivateOrLocalIPv4(host)) return true;
+    if (isPrivateOrLocalIPv6(host)) return true;
+    return false;
   } catch {
     return false;
   }
@@ -157,11 +185,20 @@ const isLoopbackUrl = (candidateUrl: string): boolean => {
 const canRequestLnaPrompt = (candidateUrl: string): boolean => {
   if (typeof window === "undefined") return false;
   if (!window.isSecureContext) return false;
-  return isLoopbackUrl(candidateUrl);
+  return isLocalNetworkUrl(candidateUrl);
 };
 
 type LocalNetworkRequestInit = RequestInit & {
-  targetAddressSpace?: "local" | "private" | "loopback";
+  targetAddressSpace?: "local" | "private";
+};
+
+const withLocalNetworkHint = (baseUrl: string, init: RequestInit = {}): RequestInit => {
+  if (!canRequestLnaPrompt(baseUrl)) {
+    return init;
+  }
+  const hinted: LocalNetworkRequestInit = { ...init };
+  hinted.targetAddressSpace = "local";
+  return hinted;
 };
 
 const warmupLoopbackPermission = async (baseUrl: string): Promise<void> => {
@@ -171,8 +208,8 @@ const warmupLoopbackPermission = async (baseUrl: string): Promise<void> => {
       method: "GET",
       mode: "cors" as const,
       cache: "no-store" as const,
-      // Experimental option used by Chromium-based browsers for local-network prompts.
-      targetAddressSpace: "loopback",
+      // Chrome LNA guidance: explicitly mark local-network intent from HTTPS contexts.
+      targetAddressSpace: "local",
     };
     await fetch(`${baseUrl}/health`, init);
   } catch {
@@ -221,14 +258,15 @@ const requestJson = async <T>(
 ): Promise<T> => {
   const normalizedBaseUrl = asBaseUrl(baseUrl);
   const requestUrl = `${normalizedBaseUrl}${path}`;
+  const requestInit = withLocalNetworkHint(normalizedBaseUrl, init);
   let response: Response;
   try {
-    response = await fetch(requestUrl, init);
+    response = await fetch(requestUrl, requestInit);
   } catch (error) {
     if (canRequestLnaPrompt(normalizedBaseUrl)) {
       try {
         await warmupLoopbackPermission(normalizedBaseUrl);
-        response = await fetch(requestUrl, init);
+        response = await fetch(requestUrl, requestInit);
       } catch (retryError) {
         throw toNetworkError(retryError);
       }
@@ -269,14 +307,15 @@ const requestBlob = async (
 ): Promise<Blob> => {
   const normalizedBaseUrl = asBaseUrl(baseUrl);
   const requestUrl = `${normalizedBaseUrl}${path}`;
+  const requestInit = withLocalNetworkHint(normalizedBaseUrl, init);
   let response: Response;
   try {
-    response = await fetch(requestUrl, init);
+    response = await fetch(requestUrl, requestInit);
   } catch (error) {
     if (canRequestLnaPrompt(normalizedBaseUrl)) {
       try {
         await warmupLoopbackPermission(normalizedBaseUrl);
-        response = await fetch(requestUrl, init);
+        response = await fetch(requestUrl, requestInit);
       } catch (retryError) {
         throw toNetworkError(retryError);
       }
